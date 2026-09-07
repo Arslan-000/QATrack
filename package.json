@@ -1,0 +1,21 @@
+{
+  "name": "pulsewave-qa-platform",
+  "version": "1.0.0",
+  "description": "All-in-One Software Project & Bug Tracking Platform (V1 UI)",
+  "main": "index.html",
+  "scripts": {
+    "dev": "npx -y serve .",
+    "serve": "npx -y serve ."
+  },
+  "keywords": [
+    "qa",
+    "project-management",
+    "jira-alternative",
+    "bug-tracker"
+  ],
+  "author": "PulseWave Technologies",
+  "license": "MIT",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.113.0"
+  }
+}

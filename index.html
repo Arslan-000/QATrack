@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PulseWave QA — All-in-One Software Project & Bug Tracking System (V2)</title>
+  
+  <!-- Google Fonts: Inter, JetBrains Mono & Playfair Display -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&family=Playfair+Display:ital,wght@0,400;0,500;0,600;0,700;0,800;0,900;1,400;1,600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;0,6..72,700;1,6..72,400&display=swap" rel="stylesheet">
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+            serif: ['Playfair Display', 'Newsreader', 'Georgia', 'serif'],
+          },
+          colors: {
+            primary: {
+              50: '#f7fee7',
+              100: '#ecfccb',
+              200: '#d9f99d',
+              300: '#bef264',
+              400: '#a3e635',
+              500: '#84cc16',
+              600: '#65a30d',
+              700: '#4d7c0f',
+              800: '#3f6212',
+              900: '#365314',
+              950: '#020617',
+            },
+            brand: {
+              lime: '#bef264',
+              accent: '#84cc16',
+              dark: '#020617',
+              surface: '#ffffff'
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- Lucide Icons CDN -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <!-- Custom Styles (Light Theme Design System) -->
+  <link rel="stylesheet" href="css/styles.css?v=2.4" />
+</head>
+<body class="bg-slate-50 text-slate-900 font-sans antialiased h-screen flex overflow-hidden">
+
+  <!-- Mobile Sidebar Backdrop Overlay -->
+  <div id="sidebarBackdrop" onclick="window.app.toggleMobileSidebar(false)" class="hidden fixed inset-0 bg-slate-950/40 backdrop-blur-xs z-30 md:hidden transition-opacity"></div>
+
+  <!-- =========================================================================
+       MAIN SIDEBAR NAVIGATION (Section 3) - Light Clean Theme
+       ========================================================================= -->
+  <aside id="appSidebar" class="fixed inset-y-0 left-0 z-40 w-64 bg-white text-slate-700 flex flex-col shrink-0 border-r border-slate-200 select-none transform -translate-x-full md:translate-x-0 md:static transition-transform duration-200 ease-in-out shadow-xl md:shadow-none">
+    
+    <!-- Platform Brand Logo Header (Landing Page Signature Theme) -->
+    <div class="h-16 px-5 border-b border-slate-200 flex items-center justify-between">
+      <div class="flex items-center gap-2.5 cursor-pointer" onclick="window.app.navigate('dashboard')">
+        <div class="w-7 h-7 grid grid-cols-2 gap-0.5 shadow-2xs">
+          <div class="bg-[#84cc16] rounded-xs"></div>
+          <div class="bg-slate-950 rounded-xs"></div>
+          <div class="bg-slate-950 rounded-xs"></div>
+          <div class="bg-slate-950 rounded-xs"></div>
+        </div>
+        <div>
+          <h1 class="text-sm font-extrabold text-slate-950 tracking-tight flex items-center gap-1.5 leading-tight">
+            PulseWave <span class="px-1.5 py-0.2 bg-[#f7fee7] text-[#4d7c0f] text-[9px] font-bold rounded border border-[#d9f99d]">V2</span>
+          </h1>
+          <p class="text-[10px] text-slate-400 font-medium">Enterprise QA & Engineering</p>
+        </div>
+      </div>
+
+      <!-- Mobile Close Button -->
+      <button onclick="window.app.toggleMobileSidebar(false)" class="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg md:hidden hover:bg-slate-100 transition">
+        <i data-lucide="x" class="w-5 h-5"></i>
+      </button>
+    </div>
+
+    <!-- Navigation Menu (Jira & Linear Standard Layout) -->
+    <div class="flex-1 overflow-y-auto p-3 space-y-4 text-xs">
+      
+      <!-- Interactive Spaces & Projects Context Switcher Widget -->
+      <div id="sidebarSpacesExplorerContainer" class="pb-3 border-b border-slate-100"></div>
+
+      <!-- Dynamic Role-Based Sidebar Navigation Menu -->
+      <div id="sidebarNavMenuContainer" class="space-y-4">
+        <!-- Dynamically rendered according to role (PM, QA, Developer, Viewer) -->
+      </div>
+
+    </div>
+
+    <!-- Sidebar Footer (Clean User Profile Persona) -->
+    <div class="p-3 border-t border-slate-200 bg-slate-50/80">
+      <div id="sidebarUserFooterContainer" class="flex items-center justify-between gap-2"></div>
+    </div>
+  </aside>
+
+  <!-- =========================================================================
+       MAIN APPLICATION LAYOUT & TOP BAR (Section 4)
+       ========================================================================= -->
+  <div class="flex-1 flex flex-col min-w-0 overflow-hidden">
+    
+    <!-- Top Header Bar -->
+    <header class="h-16 bg-white border-b border-slate-200 px-4 sm:px-6 flex items-center justify-between gap-3 shrink-0 z-20">
+      
+      <!-- Left: Mobile Menu Toggle -->
+      <div class="flex items-center gap-2 sm:gap-4 min-w-0 flex-1">
+        <!-- Mobile Drawer Button -->
+        <button onclick="window.app.toggleMobileSidebar(true)" class="p-2 -ml-1 text-slate-600 hover:text-slate-900 md:hidden rounded-lg hover:bg-slate-100 transition shrink-0" title="Open Navigation Menu">
+          <i data-lucide="menu" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <!-- Right: Notifications & User Avatar -->
+      <div class="flex items-center gap-2 sm:gap-3 shrink-0">
+        
+        <!-- Notifications Bell (Section 4, 22) -->
+        <div class="relative">
+          <button id="notifDropdownBtn" onclick="window.app.toggleNotificationMenu()" class="p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition relative cursor-pointer" title="Notifications">
+            <i data-lucide="bell" class="w-5 h-5"></i>
+            <span id="notifBadge" class="hidden absolute top-1.5 right-1.5 w-4 h-4 bg-red-600 text-white rounded-full text-[9px] font-bold flex items-center justify-center ring-2 ring-white">0</span>
+          </button>
+
+          <!-- Notifications Dropdown Popup -->
+          <div id="notifDropdownMenu" class="hidden fixed sm:absolute inset-x-3 sm:inset-auto right-auto sm:right-0 top-16 sm:top-12 sm:w-96 bg-white rounded-2xl shadow-2xl border border-slate-200 z-50 animate-fade-in overflow-hidden">
+            <div class="p-3.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+              <div class="flex items-center gap-2 font-bold text-xs text-slate-900">
+                <i data-lucide="bell" class="w-4 h-4 text-slate-900"></i> Notifications
+              </div>
+              <button onclick="window.app.markAllNotifsRead()" class="text-[11px] text-[#4d7c0f] hover:text-[#3f6212] hover:underline font-bold cursor-pointer">Mark All Read</button>
+            </div>
+            <div id="notifListContainer" class="max-h-80 overflow-y-auto divide-y divide-slate-100"></div>
+          </div>
+        </div>
+
+        <div class="h-6 w-px bg-slate-200 hidden sm:block"></div>
+
+        <!-- User Avatar & Persona Switcher (Section 4, 16, 28) -->
+        <div id="headerPersonaWidget" class="relative"></div>
+
+      </div>
+    </header>
+
+    <!-- Main Dynamic View Container -->
+    <main id="mainContent" class="flex-1 overflow-y-auto p-4 sm:p-6 bg-slate-50/70"></main>
+  </div>
+
+  <!-- Global Modals & Drawers Container -->
+  <div id="globalModalContainer"></div>
+  <div id="globalDrawerContainer"></div>
+
+  <!-- Toast Notification Alerts Container -->
+  <div id="toastContainer" class="fixed bottom-5 right-5 z-50 space-y-3 pointer-events-none max-w-sm w-full px-4 sm:px-0"></div>
+
+  <!-- Supabase JS CDN & Client Configuration -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="js/supabase.js?v=1.0"></script>
+
+  <!-- HTML2PDF & jsPDF CDN for QA Corporate PDF Generation -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+  <!-- Scripts Loading (Seed Data -> Services -> Store -> Views -> App Controller) -->
+  <script src="js/data.js?v=2.6"></script>
+  <script src="js/services/releaseQualityService.js?v=1.0"></script>
+  <script src="js/services/aiQAService.js?v=1.0"></script>
+  <script src="js/store.js?v=2.6"></script>
+  <script src="js/views/dashboard.js?v=2.6"></script>
+  <script src="js/views/projects.js?v=2.6"></script>
+  <script src="js/views/backlogSprints.js?v=2.6"></script>
+  <script src="js/views/projectWorkspace.js?v=2.6"></script>
+  <script src="js/views/myIssues.js?v=2.6"></script>
+  <script src="js/views/allIssues.js?v=2.6"></script>
+  <script src="js/views/reports.js?v=2.6"></script>
+  <script src="js/views/testManagement.js?v=3.0"></script>
+  <script src="js/views/testReports.js?v=2.6"></script>
+  <script src="js/views/releases.js?v=1.0"></script>
+  <script src="js/views/documentation.js?v=2.6"></script>
+  <script src="js/views/landingPage.js?v=2.6"></script>
+  <script src="js/views/auth.js?v=2.6"></script>
+  <script src="js/views/onboarding.js?v=2.6"></script>
+  <script src="js/views/comingSoon.js?v=2.6"></script>
+  <script src="js/views/projectChat.js?v=2.6"></script>
+  <script src="js/views/settings.js?v=2.6"></script>
+  <script src="js/views/aiQAAssistant.js?v=1.0"></script>
+  <script src="js/app.js?v=2.6"></script>
+</body>
+</html>
