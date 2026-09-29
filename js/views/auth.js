@@ -672,14 +672,19 @@ const AuthView = {
       const sb = (typeof window !== 'undefined' && window.supabaseClient) || (typeof supabaseClient !== 'undefined' ? supabaseClient : null);
       let authUser = null;
 
+      let sbErrorMessage = null;
       // 1. Try Supabase Auth
       if (sb && sb.auth) {
         try {
           const { data, error } = await sb.auth.signInWithPassword({ email, password });
-          if (!error && data && data.user) {
+          if (error) {
+            sbErrorMessage = error.message;
+            console.warn("Supabase signInWithPassword attempt notice:", error.message);
+          } else if (data && data.user) {
             authUser = store.setSupabaseUser(data.user);
           }
         } catch (sbErr) {
+          sbErrorMessage = sbErr.message;
           console.warn("Supabase signInWithPassword attempt notice:", sbErr);
         }
       }
@@ -690,7 +695,7 @@ const AuthView = {
       }
 
       if (!authUser) {
-        throw new Error("Invalid email or password. Please check your credentials.");
+        throw new Error(sbErrorMessage || "Invalid email or password. Please check your credentials.");
       }
 
       // 3. Auto-accept any pending invitations for this user

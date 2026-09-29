@@ -18,14 +18,22 @@ class AppController {
     // Try restoring real Supabase authenticated user session
     if (window.supabaseClient && window.supabaseClient.auth) {
       try {
-        const { data } = await window.supabaseClient.auth.getSession();
-        if (data && data.session && data.session.user) {
-          store.setSupabaseUser(data.session.user);
-        }
-
-        // Load real database tables if initialized in Supabase
-        if (store.loadSupabaseCloudTables) {
-          await store.loadSupabaseCloudTables();
+        const { data: userData, error: userErr } = await window.supabaseClient.auth.getUser();
+        if (userErr || !userData || !userData.user) {
+          // User was deleted from Supabase Auth or token is invalid
+          console.log("No valid Supabase user found on server. Clearing local session.");
+          try { await window.supabaseClient.auth.signOut(); } catch (e) {}
+          if (typeof localStorage !== 'undefined') {
+            localStorage.removeItem("pulsewave_supabase_auth_token");
+            localStorage.removeItem("pulsewave_qa_v2_store");
+          }
+          store.clearSupabaseUser();
+        } else {
+          store.setSupabaseUser(userData.user);
+          // Load real database tables if initialized in Supabase
+          if (store.loadSupabaseCloudTables) {
+            await store.loadSupabaseCloudTables();
+          }
         }
 
         // Listen for Supabase auth state changes
@@ -38,6 +46,9 @@ class AppController {
             this.updateSidebarSpacesExplorer();
           } else if (event === 'SIGNED_OUT') {
             store.clearSupabaseUser();
+            this.updateHeaderProjectSelector();
+            this.updateHeaderPersona();
+            this.updateSidebarSpacesExplorer();
           }
         });
       } catch (e) {
@@ -1209,9 +1220,18 @@ class AppController {
         console.warn("Supabase signOut error:", e);
       }
     }
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem("pulsewave_supabase_auth_token");
+      localStorage.removeItem("pulsewave_qa_v2_store");
+      localStorage.removeItem("pulsewave_project_invitations");
+      localStorage.removeItem("last_project_invite_token");
+    }
+    if (typeof sessionStorage !== 'undefined') {
+      sessionStorage.clear();
+    }
     store.clearSupabaseUser();
-    this.showToast("Signed Out", "You have been signed out from Supabase. Returning to home landing page.", "info");
-    this.navigate("home");
+    this.showToast("Signed Out", "You have been signed out from Supabase. Returning to login screen.", "info");
+    this.navigate("login");
   }
 
   // --- TOP BAR: NOTIFICATIONS ---

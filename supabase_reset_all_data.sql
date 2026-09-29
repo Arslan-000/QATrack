@@ -1,67 +1,58 @@
 -- ==============================================================================
--- PulseWave QA Platform — Complete Supabase Database & Auth Wipe / Reset Script
+-- PulseWave QA Platform — Complete Supabase Database & Auth Wipe / Fresh Reset
 -- ==============================================================================
--- RUN THIS SCRIPT IN: Supabase Dashboard -> SQL Editor -> New Query -> Run
--- WARNING: This will permanently delete all authentication accounts (auth.users),
--- user profiles, spaces, projects, issues, test cases, test runs, sprints, and chats.
+-- HOW TO RUN:
+-- 1. Open Supabase Dashboard (https://supabase.com/dashboard)
+-- 2. Select your project ("wbtvsishoufterznmfot")
+-- 3. In the left sidebar, click "SQL Editor" -> "+ New Query"
+-- 4. Paste this entire script and click "Run" (or Ctrl+Enter / Cmd+Enter)
+--
+-- WHAT THIS DOES:
+-- ✔ Deletes ALL Supabase Auth Accounts (auth.users)
+-- ✔ Wipes ALL Application Tables (Spaces, Projects, Issues, Test Cases, Chats, etc.)
+-- ✔ Deletes ALL uploaded files/attachments (storage.objects)
+-- ✔ Resets your Supabase project to a 100% completely clean, brand-new state!
 -- ==============================================================================
 
 BEGIN;
 
--- 1. Disable triggers temporarily to avoid foreign key constraints during wipe
+-- 1. Disable triggers and foreign key constraints temporarily
 SET session_replication_role = 'replica';
 
--- 2. Delete all records from Application Tables (Cascade Clean)
-TRUNCATE TABLE 
-    public.chat_message_links,
-    public.chat_message_attachments,
-    public.chat_message_mentions,
-    public.chat_message_reactions,
-    public.chat_messages,
-    public.chat_conversation_members,
-    public.chat_conversations,
-    public.documents,
-    public.document_templates,
-    public.ai_email_logs,
-    public.ai_generations,
-    public.release_issue_links,
-    public.release_decisions,
-    public.project_quality_settings,
-    public.release_risk_factors,
-    public.release_quality_assessments,
-    public.releases,
-    public.test_reports,
-    public.test_results,
-    public.test_runs,
-    public.test_suites,
-    public.test_issue_links,
-    public.test_executions,
-    public.test_cases,
-    public.sprints,
-    public.issues,
-    public.project_invitations,
-    public.project_members,
-    public.projects,
-    public.workspace_invitations,
-    public.workspace_members,
-    public.spaces,
-    public.profiles
-CASCADE;
+-- 2. Dynamically TRUNCATE every single table in the public schema
+DO $$
+DECLARE
+    r RECORD;
+BEGIN
+    FOR r IN (SELECT tablename FROM pg_tables WHERE schemaname = 'public') LOOP
+        EXECUTE 'TRUNCATE TABLE public.' || quote_ident(r.tablename) || ' CASCADE;';
+    END LOOP;
+END $$;
 
--- 3. Delete all Supabase Auth Accounts (Users)
--- This deletes all registered accounts from Supabase Authentication
+-- 3. Delete all Supabase Auth Users & Sessions
 DELETE FROM auth.users;
 
--- 4. Re-enable standard triggers & replication
+-- 4. Clean Supabase Storage objects (if any uploaded files exist)
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'storage' AND table_name = 'objects') THEN
+        DELETE FROM storage.objects;
+    END IF;
+END $$;
+
+-- 5. Re-enable standard triggers & constraints
 SET session_replication_role = 'origin';
 
 COMMIT;
 
--- Verify Clean State
+-- ==============================================================================
+-- VERIFICATION: Run count check to confirm everything is 0 (100% clean)
+-- ==============================================================================
 SELECT 
     (SELECT COUNT(*) FROM auth.users) AS remaining_auth_users,
     (SELECT COUNT(*) FROM public.profiles) AS remaining_profiles,
     (SELECT COUNT(*) FROM public.spaces) AS remaining_spaces,
     (SELECT COUNT(*) FROM public.projects) AS remaining_projects,
     (SELECT COUNT(*) FROM public.issues) AS remaining_issues,
-    (SELECT COUNT(*) FROM public.test_cases) AS remaining_test_cases;
+    (SELECT COUNT(*) FROM public.test_cases) AS remaining_test_cases,
+    (SELECT COUNT(*) FROM public.chat_messages) AS remaining_chat_messages;

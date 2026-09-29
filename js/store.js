@@ -245,6 +245,7 @@ class AppStore {
     this.data.activeUserId = null;
     this.data.activeWorkspaceId = null;
     this.data.activeProjectId = null;
+    this.data.users = [];
     this.saveState();
     this.notify();
   }
