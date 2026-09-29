@@ -1,17 +1,16 @@
 /**
- * PulseWave — Workspace Onboarding & Team Setup (V1 / V2)
+ * PulseWave — Workspace Onboarding & Streamlined Setup (V1 / V2)
  * Premium B2B SaaS First-Time User Onboarding Experience
  * Features:
  *  - 00: Welcome to PulseWave (Value propositions & benefits)
  *  - 01: Create Workspace (Slug generator, URL availability, company type, logo upload)
  *  - 02: Create First Project (Key auto-gen, PM dropdown, priority, status, timeline)
- *  - 03: Invite Team Members (Dynamic list, role selector, quick chips, pending badges)
- *  - 04: Workspace Setup Complete (Checklist, executive summary card, direct dashboard entry)
+ *  - 03: Workspace Setup Complete (Checklist, executive summary card, direct dashboard entry)
  */
 
 const OnboardingView = {
   state: {
-    currentStep: 0, // 0: Welcome, 1: Workspace, 2: Project, 3: Team, 4: Complete
+    currentStep: 0, // 0: Welcome, 1: Workspace, 2: Project, 3: Complete
     workspace: {
       name: "",
       company: "",
@@ -33,7 +32,6 @@ const OnboardingView = {
     },
     team: [],
     skippedProject: false,
-    skippedTeam: false,
     errors: {}
   },
 
@@ -47,6 +45,8 @@ const OnboardingView = {
 
   render(container) {
     const step = this.state.currentStep;
+    const activeUser = typeof store !== 'undefined' ? store.getActiveUser() : null;
+    const userSpaces = activeUser && store.getWorkspaces ? store.getWorkspaces(activeUser.id) : [];
 
     container.innerHTML = `
       <div class="min-h-screen relative flex flex-col justify-between font-sans overflow-hidden" style="background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 45%, #ffffff 100%);">
@@ -86,6 +86,18 @@ const OnboardingView = {
         <!-- Main Onboarding Container (Two-Column Layout on Desktop) -->
         <main class="relative z-10 flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-10 flex flex-col justify-center">
           
+          ${userSpaces.length > 0 ? `
+            <div class="mb-6 p-3.5 bg-emerald-50 border border-emerald-200 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-3 text-xs shadow-xs animate-fade-in">
+              <div class="flex items-center gap-2.5 text-emerald-900">
+                <div class="w-6 h-6 rounded-full bg-emerald-500 text-white flex items-center justify-center font-bold text-xs shrink-0">✓</div>
+                <span>You belong to <strong>${userSpaces[0].name}</strong>. You can enter the existing workspace or create a new space.</span>
+              </div>
+              <button onclick="window.app.navigate('dashboard')" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl transition cursor-pointer flex items-center gap-1.5 shrink-0">
+                <span>Enter ${userSpaces[0].name}</span> <i data-lucide="arrow-right" class="w-3.5 h-3.5"></i>
+              </button>
+            </div>
+          ` : ''}
+
           <div class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
             
             <!-- LEFT PANEL: Brand Info, Hierarchy & Visual Progress Checklist (Hidden on small screens, visible on lg) -->
@@ -98,7 +110,7 @@ const OnboardingView = {
                   Let's get your workspace ready
                 </h1>
                 <p class="text-xs text-slate-500 font-normal leading-relaxed">
-                  Set up your organization, launch your initial QA project, and invite your engineering team.
+                  Set up your organization and launch your initial QA & engineering project.
                 </p>
               </div>
 
@@ -141,38 +153,20 @@ const OnboardingView = {
 
                 <div class="h-px bg-slate-100 ml-3.5"></div>
 
-                <!-- Step 03: Team -->
+                <!-- Step 03: Ready -->
                 <div class="flex items-center gap-3 cursor-pointer group" onclick="OnboardingView.setStep(3)">
                   <div class="w-7 h-7 rounded-xl flex items-center justify-center font-bold text-xs transition ${
-                    step > 3 ? 'bg-emerald-500 text-white' : step === 3 ? 'bg-[#bef264] text-slate-950 font-black shadow-xs ring-2 ring-[#84cc16]/40' : 'bg-slate-100 text-slate-500'
+                    step === 3 ? 'bg-emerald-600 text-white font-black shadow-xs ring-2 ring-emerald-400' : 'bg-slate-100 text-slate-500'
                   }">
-                    ${step > 3 ? '✓' : '03'}
+                    ${step === 3 ? '✓' : '03'}
                   </div>
                   <div class="flex-1">
-                    <div class="text-xs font-bold ${step === 3 ? 'text-slate-950 font-black' : step > 3 ? 'text-emerald-700' : 'text-slate-600'}">
-                      Invite Team
-                    </div>
-                    <div class="text-[10px] text-slate-400">QA engineers, PMs & developers</div>
-                  </div>
-                  ${step === 3 ? `<span class="w-2 h-2 rounded-full bg-[#84cc16] animate-pulse"></span>` : ''}
-                </div>
-
-                <div class="h-px bg-slate-100 ml-3.5"></div>
-
-                <!-- Step 04: Ready -->
-                <div class="flex items-center gap-3 cursor-pointer group" onclick="OnboardingView.setStep(4)">
-                  <div class="w-7 h-7 rounded-xl flex items-center justify-center font-bold text-xs transition ${
-                    step === 4 ? 'bg-emerald-600 text-white font-black shadow-xs ring-2 ring-emerald-400' : 'bg-slate-100 text-slate-500'
-                  }">
-                    ${step === 4 ? '✓' : '04'}
-                  </div>
-                  <div class="flex-1">
-                    <div class="text-xs font-bold ${step === 4 ? 'text-slate-950 font-black' : 'text-slate-600'}">
+                    <div class="text-xs font-bold ${step === 3 ? 'text-slate-950 font-black' : 'text-slate-600'}">
                       Workspace Ready
                     </div>
                     <div class="text-[10px] text-slate-400">Launch command center</div>
                   </div>
-                  ${step === 4 ? `<span class="w-2 h-2 rounded-full bg-emerald-500"></span>` : ''}
+                  ${step === 3 ? `<span class="w-2 h-2 rounded-full bg-emerald-500"></span>` : ''}
                 </div>
 
               </div>
@@ -191,9 +185,6 @@ const OnboardingView = {
                   </div>
                   <div class="pl-4 border-l border-slate-700 space-y-1 text-slate-300 text-[11px]">
                     <div class="flex items-center gap-1.5">
-                      <span>↳</span> <span>Team Members & Roles</span>
-                    </div>
-                    <div class="flex items-center gap-1.5">
                       <span>↳</span> <span>Projects (Multi-Project)</span>
                     </div>
                     <div class="pl-3 border-l border-slate-700 text-slate-400 text-[10px] space-y-0.5">
@@ -206,7 +197,7 @@ const OnboardingView = {
                 </div>
                 <div class="pt-2 border-t border-slate-800 text-[10px] text-slate-400 flex items-center gap-1.5">
                   <i data-lucide="clock" class="w-3 h-3 text-[#bef264]"></i>
-                  <span>Setup takes about 2 minutes</span>
+                  <span>Setup takes under 1 minute</span>
                 </div>
               </div>
 
@@ -243,8 +234,6 @@ const OnboardingView = {
       case 2:
         return this.renderProjectStep();
       case 3:
-        return this.renderTeamStep();
-      case 4:
         return this.renderCompleteStep();
       default:
         return this.renderWelcomeStep();
@@ -268,7 +257,7 @@ const OnboardingView = {
             Welcome to PulseWave
           </h2>
           <p class="text-xs sm:text-sm text-slate-600 font-normal leading-relaxed max-w-xl">
-            Your workspace for project management, QA, issue tracking, and software delivery.
+            Your unified workspace for project management, QA verification, bug tracking, and release quality gates.
           </p>
         </div>
 
@@ -281,7 +270,7 @@ const OnboardingView = {
             </div>
             <h3 class="text-xs font-bold text-slate-900">Project Management</h3>
             <p class="text-[11px] text-slate-500 leading-relaxed font-normal">
-              Track projects, sprints, backlog, and team velocity in one board.
+              Track projects, sprints, backlog, and team velocity in one agile board.
             </p>
           </div>
 
@@ -301,7 +290,7 @@ const OnboardingView = {
             </div>
             <h3 class="text-xs font-bold text-slate-900">Issue Tracking</h3>
             <p class="text-[11px] text-slate-500 leading-relaxed font-normal">
-              Track bugs from discovery to fix, retest verification, and release clearance.
+              Track defects from discovery to fix, retest verification, and release sign-off.
             </p>
           </div>
 
@@ -345,12 +334,12 @@ const OnboardingView = {
         
         <!-- Header -->
         <div class="space-y-1">
-          <div class="text-[10px] font-bold uppercase tracking-wider text-[#4d7c0f]">STEP 01 OF 04</div>
+          <div class="text-[10px] font-bold uppercase tracking-wider text-[#4d7c0f]">STEP 01 OF 03</div>
           <h2 class="text-xl sm:text-2xl font-black text-slate-950 tracking-tight">
             Create your workspace
           </h2>
           <p class="text-xs text-slate-500 font-normal">
-            Your workspace is the central home for your team and projects.
+            Your workspace is the central home for your team, spaces, and QA projects.
           </p>
         </div>
 
@@ -440,7 +429,7 @@ const OnboardingView = {
             </div>
           </div>
 
-          <!-- Workspace Brand & Logo Upload Section (Clean, Spacious, No Color Theme Selection) -->
+          <!-- Workspace Brand & Logo Upload Section -->
           <div class="pt-2 border-t border-slate-100">
             <label class="block font-bold text-slate-700 mb-1.5 text-[11px]">
               Workspace Logo / Icon
@@ -539,12 +528,12 @@ const OnboardingView = {
         
         <!-- Header -->
         <div class="space-y-1">
-          <div class="text-[10px] font-bold uppercase tracking-wider text-[#4d7c0f]">STEP 02 OF 04</div>
+          <div class="text-[10px] font-bold uppercase tracking-wider text-[#4d7c0f]">STEP 02 OF 03</div>
           <h2 class="text-xl sm:text-2xl font-black text-slate-950 tracking-tight">
             Create your first project
           </h2>
           <p class="text-xs text-slate-500 font-normal">
-            Start tracking development and QA work in one place.
+            Start tracking sprints, backlog, QA test suites, and defect gates in one place.
           </p>
         </div>
 
@@ -601,7 +590,7 @@ const OnboardingView = {
               />
             </div>
 
-            <!-- Project Manager Text Input (Clean Text Field) -->
+            <!-- Project Manager Text Input -->
             <div>
               <label class="block font-bold text-slate-700 mb-1 text-[11px]">
                 Project Manager / Lead *
@@ -705,7 +694,7 @@ const OnboardingView = {
                 Skip for now
               </button>
               <button type="submit" class="px-6 py-2.5 bg-[#bef264] hover:bg-[#a3e635] text-slate-950 font-black text-xs rounded-xl shadow-md shadow-[#bef264]/35 transition transform hover:-translate-y-0.5 cursor-pointer flex items-center gap-1.5">
-                <span>Continue to Team</span>
+                <span>Create Project & Launch</span>
                 <i data-lucide="arrow-right" class="w-3.5 h-3.5"></i>
               </button>
             </div>
@@ -718,156 +707,11 @@ const OnboardingView = {
   },
 
   // =========================================================================
-  // STEP 03: INVITE TEAM MEMBERS
-  // =========================================================================
-  renderTeamStep() {
-    const team = this.state.team;
-
-    return `
-      <div class="space-y-6 animate-fade-in">
-        
-        <!-- Header -->
-        <div class="space-y-1">
-          <div class="text-[10px] font-bold uppercase tracking-wider text-[#4d7c0f]">STEP 03 OF 04</div>
-          <h2 class="text-xl sm:text-2xl font-black text-slate-950 tracking-tight">
-            Build your team
-          </h2>
-          <p class="text-xs text-slate-500 font-normal">
-            Invite the people who will work with you on PulseWave.
-          </p>
-        </div>
-
-        <!-- Add Member Input Group -->
-        <div class="p-4 rounded-xl bg-slate-50/80 border border-slate-200 space-y-3">
-          <span class="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">Add New Team Member</span>
-          <form onsubmit="OnboardingView.handleAddTeamMember(event)" class="grid grid-cols-1 sm:grid-cols-12 gap-2.5">
-            <div class="sm:col-span-6">
-              <input
-                type="email"
-                id="teamEmailInput"
-                placeholder="colleague@company.com"
-                required
-                class="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-slate-900 font-medium text-xs focus:border-[#84cc16] focus:ring-2 focus:ring-[#bef264]/40 focus:outline-none transition"
-              />
-            </div>
-            <div class="sm:col-span-4">
-              <select
-                id="teamRoleInput"
-                class="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-slate-900 font-medium text-xs focus:border-[#84cc16] focus:ring-2 focus:ring-[#bef264]/40 focus:outline-none transition"
-              >
-                <option value="QA Engineer">QA Engineer</option>
-                <option value="Project Manager">Project Manager</option>
-                <option value="Developer">Developer</option>
-                <option value="Team Lead">Team Lead</option>
-                <option value="Viewer">Viewer</option>
-              </select>
-            </div>
-            <div class="sm:col-span-2">
-              <button
-                type="submit"
-                class="w-full py-2 bg-slate-950 hover:bg-slate-800 text-white font-bold text-xs rounded-xl shadow-xs transition cursor-pointer flex items-center justify-center gap-1"
-              >
-                <span>+ Add</span>
-              </button>
-            </div>
-          </form>
-
-          <!-- Quick Suggested Personas -->
-          <div class="pt-1 flex flex-wrap items-center gap-1.5 text-[10px]">
-            <span class="text-slate-400 font-medium">Quick Suggestions:</span>
-            <button type="button" onclick="OnboardingView.addQuickMember('qa.lead@pulsewave.io', 'QA Engineer', 'Rimsha Shahbaz')" class="px-2 py-0.5 rounded-md bg-white border border-slate-200 text-slate-700 hover:border-slate-300 font-semibold">+ Rimsha (QA)</button>
-            <button type="button" onclick="OnboardingView.addQuickMember('dev.lead@pulsewave.io', 'Developer', 'Kamran Akmal')" class="px-2 py-0.5 rounded-md bg-white border border-slate-200 text-slate-700 hover:border-slate-300 font-semibold">+ Kamran (Dev)</button>
-            <button type="button" onclick="OnboardingView.addQuickMember('pm.lead@pulsewave.io', 'Project Manager', 'Emily Watson')" class="px-2 py-0.5 rounded-md bg-white border border-slate-200 text-slate-700 hover:border-slate-300 font-semibold">+ Emily (PM)</button>
-          </div>
-        </div>
-
-        <!-- Team Members List -->
-        <div class="space-y-2">
-          <div class="flex items-center justify-between text-xs font-bold text-slate-700">
-            <span>Invited Members (${team.length})</span>
-            <span class="text-[10px] text-slate-400 font-normal">Pending acceptance on launch</span>
-          </div>
-
-          <div class="divide-y divide-slate-100 border border-slate-200 rounded-xl overflow-hidden bg-white max-h-56 overflow-y-auto">
-            ${team.length === 0 ? `
-              <div class="p-6 text-center text-slate-400 text-xs">
-                No team members added yet. You can invite colleagues above or add them later.
-              </div>
-            ` : team.map(m => `
-              <div class="p-3 flex items-center justify-between gap-3 hover:bg-slate-50/60 transition group">
-                <div class="flex items-center gap-2.5 min-w-0">
-                  <div class="w-8 h-8 rounded-full ${m.color || 'bg-slate-600'} text-white font-bold text-[10px] flex items-center justify-center shrink-0 shadow-2xs">
-                    ${m.initials}
-                  </div>
-                  <div class="min-w-0">
-                    <div class="flex items-center gap-2">
-                      <span class="text-xs font-bold text-slate-900 truncate">${m.name}</span>
-                      <span class="px-1.5 py-0.2 rounded bg-amber-50 text-amber-700 border border-amber-200 text-[9px] font-bold uppercase tracking-wider">
-                        PENDING
-                      </span>
-                    </div>
-                    <div class="text-[11px] text-slate-500 truncate flex items-center gap-1.5">
-                      <span>${m.email}</span>
-                      <span>•</span>
-                      <span class="font-semibold text-slate-700">${m.role}</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div class="flex items-center gap-1.5 shrink-0">
-                  <button
-                    type="button"
-                    onclick="OnboardingView.copyInviteLink('${m.email}', '${m.role}')"
-                    class="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-[10px] rounded-lg transition cursor-pointer flex items-center gap-1"
-                    title="Copy direct invitation link"
-                  >
-                    <i data-lucide="link" class="w-3 h-3 text-slate-500"></i>
-                    <span>Copy Link</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onclick="OnboardingView.removeTeamMember('${m.id}')"
-                    class="text-slate-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50 transition cursor-pointer text-xs font-semibold"
-                    title="Remove invitation"
-                  >
-                    <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
-                  </button>
-                </div>
-              </div>
-            `).join("")}
-          </div>
-        </div>
-
-        <!-- Navigation CTAs -->
-        <div class="pt-4 border-t border-slate-100 flex items-center justify-between gap-3">
-          <button type="button" onclick="OnboardingView.setStep(2)" class="px-4 py-2.5 text-slate-500 hover:text-slate-900 font-bold text-xs inline-flex items-center gap-1 cursor-pointer transition">
-            <i data-lucide="arrow-left" class="w-3.5 h-3.5"></i>
-            <span>Back</span>
-          </button>
-
-          <div class="flex items-center gap-3">
-            <button type="button" onclick="OnboardingView.skipTeamStep()" class="text-xs text-slate-400 hover:text-slate-700 font-semibold cursor-pointer transition">
-              Skip for now
-            </button>
-            <button id="teamContinueBtn" type="button" onclick="OnboardingView.handleTeamSubmit()" class="px-6 py-2.5 bg-[#bef264] hover:bg-[#a3e635] text-slate-950 font-black text-xs rounded-xl shadow-md shadow-[#bef264]/35 transition transform hover:-translate-y-0.5 cursor-pointer flex items-center gap-1.5">
-              <span>Send Invitations & Continue</span>
-              <i data-lucide="arrow-right" class="w-3.5 h-3.5"></i>
-            </button>
-          </div>
-        </div>
-
-      </div>
-    `;
-  },
-
-  // =========================================================================
-  // STEP 04: SETUP COMPLETE
+  // STEP 03: SETUP COMPLETE
   // =========================================================================
   renderCompleteStep() {
     const ws = this.state.workspace;
     const proj = this.state.project;
-    const team = this.state.team;
 
     return `
       <div class="space-y-6 animate-fade-in text-center sm:text-left">
@@ -882,7 +726,7 @@ const OnboardingView = {
             Your PulseWave workspace is ready.
           </h2>
           <p class="text-xs sm:text-sm text-slate-600 font-normal leading-relaxed max-w-xl">
-            You're ready to start managing projects and shipping better software.
+            You're ready to start managing projects, running QA test suites, and shipping high-quality software.
           </p>
         </div>
 
@@ -904,7 +748,7 @@ const OnboardingView = {
             </div>
             <div class="text-left">
               <span class="text-xs font-bold text-slate-900 block">First project initialized</span>
-              <span class="text-[10px] text-emerald-800 font-medium">${proj.name} [${proj.key}]</span>
+              <span class="text-[10px] text-emerald-800 font-medium">${proj.name ? `${proj.name} [${proj.key}]` : 'Project Space Ready'}</span>
             </div>
           </div>
 
@@ -913,8 +757,8 @@ const OnboardingView = {
               ✓
             </div>
             <div class="text-left">
-              <span class="text-xs font-bold text-slate-900 block">Team invitations queued</span>
-              <span class="text-[10px] text-emerald-800 font-medium">${team.length} members invited</span>
+              <span class="text-xs font-bold text-slate-900 block">Quality gates enabled</span>
+              <span class="text-[10px] text-emerald-800 font-medium">Zero-defect release criteria</span>
             </div>
           </div>
 
@@ -934,11 +778,11 @@ const OnboardingView = {
           <div class="flex items-center justify-between border-b border-slate-100 pb-2.5">
             <div class="flex items-center gap-2.5">
               <div class="w-8 h-8 rounded-xl ${ws.logoColor} text-white font-black text-xs flex items-center justify-center shadow-xs">
-                ${ws.name ? ws.name.substring(0, 2) : 'PW'}
+                ${ws.name ? ws.name.substring(0, 2).toUpperCase() : 'PW'}
               </div>
               <div>
-                <span class="text-xs font-black text-slate-900 block">${ws.name}</span>
-                <span class="text-[10px] text-slate-400 font-mono">pulsewave.com/${ws.slug}</span>
+                <span class="text-xs font-black text-slate-900 block">${ws.name || 'PulseWave Workspace'}</span>
+                <span class="text-[10px] text-slate-400 font-mono">pulsewave.com/${ws.slug || 'workspace'}</span>
               </div>
             </div>
             <span class="px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold flex items-center gap-1">
@@ -950,11 +794,11 @@ const OnboardingView = {
           <div class="grid grid-cols-3 gap-2 text-center text-[10px]">
             <div class="p-2 rounded-lg bg-slate-50">
               <span class="text-slate-400 block font-medium">Active Project</span>
-              <span class="font-bold text-slate-900 truncate block">${proj.name}</span>
+              <span class="font-bold text-slate-900 truncate block">${proj.name || 'Default Project'}</span>
             </div>
             <div class="p-2 rounded-lg bg-slate-50">
-              <span class="text-slate-400 block font-medium">Team Members</span>
-              <span class="font-bold text-slate-900">${team.length} Members</span>
+              <span class="text-slate-400 block font-medium">Project Lead</span>
+              <span class="font-bold text-slate-900 truncate block">${proj.pmId || 'Project Manager'}</span>
             </div>
             <div class="p-2 rounded-lg bg-slate-50">
               <span class="text-slate-400 block font-medium">QA Readiness</span>
@@ -1046,22 +890,6 @@ const OnboardingView = {
     this.state.workspace.logo = null;
     window.app.toast("Logo Removed", "Default monogram restored.", "info");
     this.setStep(1);
-  },
-
-  copyInviteLink(email, role) {
-    const origin = (typeof window !== 'undefined' && window.location && window.location.origin) ? window.location.origin : 'http://localhost:3000';
-    const wsSlug = this.state.workspace.slug || 'workspace';
-    const link = `${origin}/#join?ws=${encodeURIComponent(wsSlug)}&email=${encodeURIComponent(email)}&role=${encodeURIComponent(role)}`;
-    
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(link).then(() => {
-        window.app.toast("Invite Link Copied", `Invitation link copied to clipboard for ${email}!`, "success");
-      }).catch(() => {
-        window.app.toast("Invite Link", `Share link: ${link}`, "info");
-      });
-    } else {
-      window.app.toast("Invite Link", `Share link: ${link}`, "info");
-    }
   },
 
   async handleWorkspaceSubmit(e) {
@@ -1228,127 +1056,6 @@ const OnboardingView = {
     this.setStep(3);
   },
 
-  handleAddTeamMember(e) {
-    e.preventDefault();
-    const email = document.getElementById("teamEmailInput")?.value.trim();
-    const role = document.getElementById("teamRoleInput")?.value || "QA Engineer";
-
-    if (!email || !email.includes("@")) {
-      window.app.toast("Invalid Email", "Enter a valid email address.", "error");
-      return;
-    }
-
-    const namePart = email.split("@")[0].replace(/[._-]/g, " ");
-    const formattedName = namePart.split(" ").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
-    const initials = namePart.split(" ").map(w => w.charAt(0).toUpperCase()).join("").substring(0, 2) || "TM";
-
-    const colors = ["bg-slate-900", "bg-rose-600", "bg-emerald-600", "bg-purple-600", "bg-indigo-600", "bg-amber-600"];
-    const color = colors[this.state.team.length % colors.length];
-
-    this.state.team.push({
-      id: "tm-" + Date.now(),
-      name: formattedName,
-      email: email,
-      role: role,
-      initials: initials,
-      color: color
-    });
-
-    window.app.toast("Member Added", `Queued invitation for ${email} (${role}).`, "success");
-    this.setStep(3);
-  },
-
-  addQuickMember(email, role, name) {
-    const initials = name.split(" ").map(w => w[0]).join("").substring(0, 2);
-    const colors = ["bg-purple-600", "bg-emerald-600", "bg-slate-900", "bg-rose-600"];
-    const color = colors[this.state.team.length % colors.length];
-
-    this.state.team.push({
-      id: "tm-" + Date.now(),
-      name: name,
-      email: email,
-      role: role,
-      initials: initials,
-      color: color
-    });
-
-    window.app.toast("Quick Teammate Added", `${name} (${role}) added to invite list.`, "success");
-    this.setStep(3);
-  },
-
-  removeTeamMember(id) {
-    this.state.team = this.state.team.filter(m => m.id !== id);
-    this.setStep(3);
-  },
-
-  async handleTeamSubmit() {
-    const submitBtn = document.getElementById("teamContinueBtn");
-    if (submitBtn) {
-      submitBtn.disabled = true;
-      submitBtn.innerHTML = `<span>Sending Invitations...</span>`;
-    }
-
-    try {
-      const createdWs = this.state.createdWorkspace || (store.getActiveWorkspace ? store.getActiveWorkspace() : null);
-      const createdProj = this.state.createdProject || (store.getActiveProject ? store.getActiveProject() : null);
-
-      if (typeof store !== 'undefined' && this.state.team && this.state.team.length > 0) {
-        this.state.team.forEach(m => {
-          if (!store.data.users.find(u => u.email === m.email)) {
-            store.data.users.push({
-              id: m.id,
-              name: m.name,
-              email: m.email,
-              role: m.role,
-              initials: m.initials,
-              color: m.color
-            });
-          }
-
-          // Create official workspace invitation record in Supabase
-          if (createdWs && store.createInvitation) {
-            store.createInvitation(createdWs.id, {
-              email: m.email,
-              role: m.role
-            });
-          }
-
-          // Add to Space members
-          if (createdWs && store.addSpaceMember) {
-            store.addSpaceMember(createdWs.id, {
-              id: m.id,
-              name: m.name,
-              email: m.email,
-              role: m.role
-            });
-          }
-
-          // Add to Project members
-          if (createdProj && store.addProjectMember) {
-            store.addProjectMember(createdProj.id, {
-              id: m.id,
-              email: m.email,
-              role: m.role
-            });
-          }
-        });
-        store.saveState();
-        if (store.syncSupabaseCloudState) store.syncSupabaseCloudState();
-      }
-      window.app.toast("Invitations Dispatched", `${this.state.team.length} teammate invitations dispatched.`, "success");
-      this.setStep(4);
-    } catch (err) {
-      window.app.toast("Invitations Error", err.message, "error");
-      this.setStep(4);
-    }
-  },
-
-  skipTeamStep() {
-    this.state.skippedTeam = true;
-    window.app.toast("Team Skipped", "You can invite your team anytime from Workspace Settings.", "info");
-    this.setStep(4);
-  },
-
   skipToDashboard() {
     window.app.toast("Welcome to PulseWave", "Navigating to your executive command center.", "info");
     window.app.navigate("dashboard");
@@ -1379,4 +1086,6 @@ const OnboardingView = {
   }
 };
 
-window.OnboardingView = OnboardingView;
+if (typeof window !== 'undefined') {
+  window.OnboardingView = OnboardingView;
+}

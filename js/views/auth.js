@@ -575,6 +575,19 @@ const AuthView = {
 
     try {
       if (window.supabaseClient && window.supabaseClient.auth) {
+        // Check if there are any invitations in Supabase for this email
+        let userRole = "QA_ENGINEER";
+        let hasInvitation = false;
+        try {
+          const { data: wsInvs } = await window.supabaseClient.from('workspace_invitations').select('*').eq('invited_email', email);
+          const { data: prjInvs } = await window.supabaseClient.from('project_invitations').select('*').eq('invited_email', email);
+          if ((wsInvs && wsInvs.length > 0) || (prjInvs && prjInvs.length > 0)) {
+            hasInvitation = true;
+            const inv = (wsInvs && wsInvs[0]) || (prjInvs && prjInvs[0]);
+            userRole = inv.role || "QA_ENGINEER";
+          }
+        } catch (e) {}
+
         const { data, error } = await window.supabaseClient.auth.signUp({
           email,
           password,
@@ -582,7 +595,7 @@ const AuthView = {
             data: {
               full_name: name,
               name: name,
-              role: "PROJECT_MANAGER"
+              role: hasInvitation ? userRole : "PROJECT_MANAGER"
             }
           }
         });
@@ -605,7 +618,7 @@ const AuthView = {
               id: data.user.id,
               full_name: name,
               email: email,
-              role: 'PROJECT_MANAGER'
+              role: hasInvitation ? userRole : 'PROJECT_MANAGER'
             });
             if (profErr) console.warn("Profile table creation notice:", profErr.message);
           } catch (e) {
@@ -616,8 +629,23 @@ const AuthView = {
         // If email confirmation is disabled or session returned immediately
         if (data && data.session && data.session.user) {
           store.setSupabaseUser(data.session.user);
-          store.data.activeWorkspaceId = null;
-          store.data.activeProjectId = null;
+          if (store.loadUserSpacesAndProjects) {
+            await store.loadUserSpacesAndProjects(data.session.user.id);
+          }
+
+          const userSpaces = store.getWorkspaces ? store.getWorkspaces(data.session.user.id) : [];
+          if (userSpaces.length > 0) {
+            const activeSpace = store.getActiveWorkspace();
+            window.app.toast("Workspace Joined", `Welcome, ${name}! You have joined ${activeSpace ? activeSpace.name : 'the workspace'}.`, "success");
+            const activeProj = store.getActiveProject();
+            if (activeProj && userRole !== "OWNER" && userRole !== "PROJECT_MANAGER" && userRole !== "PM") {
+              window.app.navigate("project-workspace");
+            } else {
+              window.app.navigate("dashboard");
+            }
+            return;
+          }
+
           window.app.toast("Account Created", `Welcome, ${name}! Let's create your workspace.`, "success");
           window.app.navigate("onboarding");
           return;
@@ -698,21 +726,7 @@ const AuthView = {
         throw new Error(sbErrorMessage || "Invalid email or password. Please check your credentials.");
       }
 
-      // 3. Auto-accept any pending invitations for this user
-      if (store.data.projectInvitations) {
-        const pendingInvites = store.data.projectInvitations.filter(i => 
-          (i.invitedEmail || i.invited_email)?.toLowerCase() === email && i.status === 'PENDING'
-        );
-        for (const pinv of pendingInvites) {
-          try {
-            await store.acceptProjectInvitation(pinv.token, authUser);
-          } catch (e) {
-            console.warn("Auto-accept invitation notice:", e);
-          }
-        }
-      }
-
-      // 4. Load real user spaces and projects from Supabase if available
+      // 3. Load real user spaces and projects from Supabase (auto-accepts invitations)
       if (store.loadUserSpacesAndProjects && authUser.id) {
         await store.loadUserSpacesAndProjects(authUser.id);
       }
@@ -720,14 +734,16 @@ const AuthView = {
       const userName = authUser.name || "User";
       window.app.toast("Signed In", `Welcome back, ${userName}!`, "success");
 
-      // 5. Navigate to appropriate workspace or onboarding
+      // 4. Navigate to appropriate workspace or onboarding
       const userSpaces = store.getWorkspaces ? store.getWorkspaces(authUser.id) : [];
       if (!userSpaces || userSpaces.length === 0) {
-        // Brand new user with 0 spaces -> Send directly to create their own space!
+        // Brand new uninvited user with 0 spaces -> Send directly to create their own space!
         window.app.navigate("onboarding");
       } else {
+        const activeSpace = store.getActiveWorkspace();
+        const spaceRole = activeSpace ? store.getUserSpaceRole(activeSpace.id, authUser.id) : "PM";
         const activeProj = store.getActiveProject();
-        if (activeProj && authUser.role !== "OWNER" && authUser.role !== "PROJECT_MANAGER" && authUser.role !== "PM") {
+        if (activeProj && spaceRole !== "PM" && spaceRole !== "OWNER") {
           window.app.navigate("project-workspace");
         } else {
           window.app.navigate("dashboard");

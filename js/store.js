@@ -427,201 +427,362 @@ class AppStore {
   // ==========================================
   async loadUserSpacesAndProjects(userId) {
     const sb = (typeof window !== 'undefined' && window.supabaseClient) || (typeof supabaseClient !== 'undefined' ? supabaseClient : null);
-    if (sb && sb.from) {
-      try {
-        // 1. Fetch spaces from public.spaces table
-        const { data: spaces, error: spaceErr } = await sb.from('spaces').select('*');
-        if (!spaceErr && Array.isArray(spaces)) {
-          this.data.workspaces = spaces;
-          const userSpaces = this.getWorkspaces(userId || this.data.activeUserId);
-          if (userSpaces.length > 0) {
-            if (!this.data.activeWorkspaceId || !userSpaces.some(w => w.id === this.data.activeWorkspaceId)) {
-              this.data.activeWorkspaceId = userSpaces[0].id;
-            }
-          } else {
-            this.data.activeWorkspaceId = null;
-            this.data.activeProjectId = null;
-          }
-        }
+    if (!sb || !sb.from) return;
 
-        // 2. Fetch projects from public.projects table
-        const { data: projects, error: prjErr } = await sb.from('projects').select('*');
-        if (!prjErr && Array.isArray(projects)) {
-          this.data.projects = projects.map(p => ({
-            id: p.id,
-            workspace_id: p.workspace_id,
-            key: p.key,
-            name: p.name,
-            description: p.description || "",
-            category: p.category || "Core QA & Engineering",
-            customer: p.customer || "Enterprise Client",
-            priority: p.priority || "P1",
-            status: p.status || "Active",
-            health: p.health || 100,
-            pmId: p.pm_id || p.pmId || "Project Manager",
-            startDate: p.start_date || p.startDate || "",
-            dueDate: p.due_date || p.dueDate || "",
-            endDate: p.due_date || p.endDate || ""
-          }));
-          const spaceProjects = this.getAuthorizedProjects(this.data.activeWorkspaceId, userId || this.data.activeUserId);
-          const isCurrentActiveValid = this.data.activeProjectId && spaceProjects.some(p => p.id === this.data.activeProjectId || p.key === this.data.activeProjectId);
-          if (!isCurrentActiveValid) {
-            if (spaceProjects.length > 0) {
-              this.data.activeProjectId = spaceProjects[0].id;
-            } else {
-              this.data.activeProjectId = null;
-            }
-          }
-        }
+    try {
+      // 1. Fetch core collections in parallel
+      const [
+        spacesRes,
+        membersRes,
+        invsRes,
+        projectsRes,
+        projMembersRes,
+        projInvsRes,
+        issuesRes,
+        sprintsRes,
+        testCasesRes,
+        aiGenRes,
+        aiLogsRes
+      ] = await Promise.allSettled([
+        sb.from('spaces').select('*'),
+        sb.from('workspace_members').select('*'),
+        sb.from('workspace_invitations').select('*'),
+        sb.from('projects').select('*'),
+        sb.from('project_members').select('*'),
+        sb.from('project_invitations').select('*'),
+        sb.from('issues').select('*'),
+        sb.from('sprints').select('*'),
+        sb.from('test_cases').select('*'),
+        sb.from('ai_qa_generations').select('*'),
+        sb.from('ai_qa_email_logs').select('*')
+      ]);
 
-        // 3. Fetch members from public.workspace_members table
-        const { data: members, error: memErr } = await sb.from('workspace_members').select('*');
-        if (!memErr && Array.isArray(members)) {
-          members.forEach(m => {
-            if (m.workspace_id) {
-              const ws = this.data.workspaces.find(w => w.id === m.workspace_id);
-              if (ws) {
-                if (!ws.members) ws.members = [];
-                if (!ws.members.find(item => item.email === m.email)) {
-                  ws.members.push(m);
-                }
-              }
-            }
-          });
-        }
-
-        // 4. Fetch invitations from public.workspace_invitations table
-        const { data: invitations, error: invErr } = await sb.from('workspace_invitations').select('*');
-        if (!invErr && Array.isArray(invitations)) {
-          this.data.invitations = invitations;
-        }
-
-        // 5. Fetch issues from public.issues table
-        const { data: remoteIssues, error: issErr } = await sb.from('issues').select('*');
-        if (!issErr && Array.isArray(remoteIssues)) {
-          this.data.issues = remoteIssues.map(i => ({
-            ...i,
-            id: i.id,
-            key: i.key,
-            projectId: i.project_id || i.projectId,
-            project_id: i.project_id || i.projectId,
-            title: i.title,
-            description: i.description || "",
-            type: i.type || "Task",
-            status: i.status || "To Do",
-            priority: i.priority || "Medium",
-            qaStatus: i.qa_status || i.qaStatus || "Not Tested",
-            qa_status: i.qa_status || i.qaStatus || "Not Tested",
-            assigneeId: i.assignee_id || i.assigneeId || null,
-            reporterId: i.reporter_id || i.reporterId || null,
-            developerId: i.developer_id || i.developerId || null,
-            storyPoints: Number(i.story_points || i.storyPoints || 0),
-            sprintId: i.sprint_id || i.sprintId || null,
-            environment: i.environment || "Staging",
-            releaseVersion: i.release_version || i.releaseVersion || "",
-            buildVersion: i.build_version || i.buildVersion || "",
-            dueDate: i.due_date || i.dueDate || "",
-            due_date: i.due_date || i.dueDate || "",
-            reopenCount: Number(i.reopen_count || i.reopenCount || 0),
-            createdAt: i.created_at || i.createdAt || new Date().toISOString(),
-            updatedAt: i.updated_at || i.updatedAt || new Date().toISOString()
-          }));
-        }
-
-        // 6. Fetch sprints from public.sprints table
-        const { data: remoteSprints, error: spErr } = await sb.from('sprints').select('*');
-        if (!spErr && Array.isArray(remoteSprints)) {
-          this.data.sprints = remoteSprints.map(s => ({
-            ...s,
-            id: s.id,
-            projectId: s.project_id || s.projectId,
-            project_id: s.project_id || s.projectId,
-            name: s.name,
-            title: s.name,
-            goal: s.goal || "",
-            status: s.status || "Active",
-            startDate: s.start_date || s.startDate || "",
-            endDate: s.end_date || s.endDate || "",
-            dueDate: s.end_date || s.endDate || "",
-            createdAt: s.created_at || s.createdAt || new Date().toISOString()
-          }));
-        }
-
-        // 7. Fetch test cases from public.test_cases table
-        const { data: remoteTests, error: tcErr } = await sb.from('test_cases').select('*');
-        if (!tcErr && Array.isArray(remoteTests)) {
-          this.data.testCases = remoteTests.map(t => ({
-            ...t,
-            id: t.id,
-            projectId: t.project_id || t.projectId,
-            suiteId: t.suite_id || t.suiteId,
-            key: t.key,
-            title: t.title,
-            type: t.type || "Functional",
-            priority: t.priority || "Medium",
-            status: t.status || "Ready",
-            expectedResult: t.expected_result || t.expectedResult || "",
-            automated: t.automated || false,
-            createdAt: t.created_at || t.createdAt || new Date().toISOString()
-          }));
-        }
-
-        // 8. Fetch project members from public.project_members table
-        const { data: remoteProjMembers, error: pmErr } = await sb.from('project_members').select('*');
-        if (!pmErr && Array.isArray(remoteProjMembers)) {
-          this.data.projectMembers = remoteProjMembers.map(pm => ({
-            id: pm.id,
-            projectId: pm.project_id || pm.projectId,
-            project_id: pm.project_id || pm.projectId,
-            userId: pm.user_id || pm.userId,
-            user_id: pm.user_id || pm.userId,
-            email: pm.email,
-            role: pm.role || "DEVELOPER",
-            status: pm.status || "Active",
-            joinedAt: pm.joined_at || pm.joinedAt || pm.created_at || new Date().toISOString()
-          }));
-        }
-
-        // 9. Fetch project invitations from public.project_invitations table
-        const { data: remoteProjInvs, error: pinvErr } = await sb.from('project_invitations').select('*');
-        if (!pinvErr && Array.isArray(remoteProjInvs)) {
-          this.data.projectInvitations = remoteProjInvs.map(pi => ({
-            id: pi.id,
-            projectId: pi.project_id || pi.projectId,
-            project_id: pi.project_id || pi.projectId,
-            workspaceId: pi.workspace_id || pi.workspaceId,
-            workspace_id: pi.workspace_id || pi.workspaceId,
-            invitedEmail: pi.invited_email || pi.invitedEmail,
-            invited_email: pi.invited_email || pi.invitedEmail,
-            invitedBy: pi.invited_by || pi.invitedBy,
-            invited_by: pi.invited_by || pi.invitedBy,
-            role: pi.role || "DEVELOPER",
-            token: pi.token,
-            status: pi.status || "PENDING",
-            createdAt: pi.created_at || pi.createdAt || new Date().toISOString(),
-            expiresAt: pi.expires_at || pi.expiresAt,
-            acceptedAt: pi.accepted_at || pi.acceptedAt || null,
-            cancelledAt: pi.cancelled_at || pi.cancelledAt || null
-          }));
-        }
-
-        // 10. Fetch AI QA Generations from public.ai_qa_generations table
-        const { data: remoteGenerations, error: genErr } = await sb.from('ai_qa_generations').select('*');
-        if (!genErr && Array.isArray(remoteGenerations)) {
-          this.data.aiGenerations = remoteGenerations;
-        }
-
-        // 11. Fetch AI Email Logs from public.ai_qa_email_logs table
-        const { data: remoteEmailLogs, error: emlErr } = await sb.from('ai_qa_email_logs').select('*');
-        if (!emlErr && Array.isArray(remoteEmailLogs)) {
-          this.data.aiEmailLogs = remoteEmailLogs;
-        }
-
-        this.saveState();
-        this.notify();
-      } catch (err) {
-        console.warn("Supabase relational tables check:", err.message);
+      // Spaces
+      if (spacesRes.status === 'fulfilled' && !spacesRes.value.error && Array.isArray(spacesRes.value.data)) {
+        this.data.workspaces = spacesRes.value.data;
       }
+
+      // Workspace Members
+      if (membersRes.status === 'fulfilled' && !membersRes.value.error && Array.isArray(membersRes.value.data)) {
+        this.data.workspaceMembers = membersRes.value.data.map(m => ({
+          id: m.id,
+          workspace_id: m.workspace_id || m.workspaceId,
+          workspaceId: m.workspace_id || m.workspaceId,
+          userId: m.user_id || m.userId,
+          user_id: m.user_id || m.userId,
+          name: m.name,
+          email: (m.email || '').toLowerCase().trim(),
+          role: m.role || 'QA_ENGINEER',
+          status: m.status || 'Active',
+          joinedAt: m.joined_at || m.joinedAt || m.created_at || new Date().toISOString()
+        }));
+      } else {
+        if (!this.data.workspaceMembers) this.data.workspaceMembers = [];
+      }
+
+      // Workspace Invitations
+      if (invsRes.status === 'fulfilled' && !invsRes.value.error && Array.isArray(invsRes.value.data)) {
+        this.data.invitations = invsRes.value.data;
+      } else {
+        if (!this.data.invitations) this.data.invitations = [];
+      }
+
+      // Projects
+      if (projectsRes.status === 'fulfilled' && !projectsRes.value.error && Array.isArray(projectsRes.value.data)) {
+        this.data.projects = projectsRes.value.data.map(p => ({
+          id: p.id,
+          workspace_id: p.workspace_id,
+          key: p.key,
+          name: p.name,
+          description: p.description || "",
+          category: p.category || "Core QA & Engineering",
+          customer: p.customer || "Enterprise Client",
+          priority: p.priority || "P1",
+          status: p.status || "Active",
+          health: p.health || 100,
+          pmId: p.pm_id || p.pmId || "Project Manager",
+          startDate: p.start_date || p.startDate || "",
+          dueDate: p.due_date || p.dueDate || "",
+          endDate: p.due_date || p.endDate || ""
+        }));
+      }
+
+      // Project Members
+      if (projMembersRes.status === 'fulfilled' && !projMembersRes.value.error && Array.isArray(projMembersRes.value.data)) {
+        this.data.projectMembers = projMembersRes.value.data.map(pm => ({
+          id: pm.id,
+          projectId: pm.project_id || pm.projectId,
+          project_id: pm.project_id || pm.projectId,
+          userId: pm.user_id || pm.userId,
+          user_id: pm.user_id || pm.userId,
+          email: (pm.email || '').toLowerCase().trim(),
+          role: pm.role || "DEVELOPER",
+          status: pm.status || "Active",
+          joinedAt: pm.joined_at || pm.joinedAt || pm.created_at || new Date().toISOString()
+        }));
+      } else {
+        if (!this.data.projectMembers) this.data.projectMembers = [];
+      }
+
+      // Project Invitations
+      if (projInvsRes.status === 'fulfilled' && !projInvsRes.value.error && Array.isArray(projInvsRes.value.data)) {
+        this.data.projectInvitations = projInvsRes.value.data.map(pi => ({
+          id: pi.id,
+          projectId: pi.project_id || pi.projectId,
+          project_id: pi.project_id || pi.projectId,
+          workspaceId: pi.workspace_id || pi.workspaceId,
+          workspace_id: pi.workspace_id || pi.workspaceId,
+          invitedEmail: (pi.invited_email || pi.invitedEmail || '').toLowerCase().trim(),
+          invited_email: (pi.invited_email || pi.invitedEmail || '').toLowerCase().trim(),
+          invitedBy: pi.invited_by || pi.invitedBy,
+          invited_by: pi.invited_by || pi.invitedBy,
+          role: pi.role || "DEVELOPER",
+          token: pi.token,
+          status: pi.status || "PENDING",
+          createdAt: pi.created_at || pi.createdAt || new Date().toISOString(),
+          expiresAt: pi.expires_at || pi.expiresAt,
+          acceptedAt: pi.accepted_at || pi.acceptedAt || null,
+          cancelledAt: pi.cancelled_at || pi.cancelledAt || null
+        }));
+      } else {
+        if (!this.data.projectInvitations) this.data.projectInvitations = [];
+      }
+
+      // Issues
+      if (issuesRes.status === 'fulfilled' && !issuesRes.value.error && Array.isArray(issuesRes.value.data)) {
+        this.data.issues = issuesRes.value.data.map(i => ({
+          ...i,
+          id: i.id,
+          key: i.key,
+          projectId: i.project_id || i.projectId,
+          project_id: i.project_id || i.projectId,
+          title: i.title,
+          description: i.description || "",
+          type: i.type || "Task",
+          status: i.status || "To Do",
+          priority: i.priority || "Medium",
+          qaStatus: i.qa_status || i.qaStatus || "Not Tested",
+          qa_status: i.qa_status || i.qaStatus || "Not Tested",
+          assigneeId: i.assignee_id || i.assigneeId || null,
+          reporterId: i.reporter_id || i.reporterId || null,
+          developerId: i.developer_id || i.developerId || null,
+          storyPoints: Number(i.story_points || i.storyPoints || 0),
+          sprintId: i.sprint_id || i.sprintId || null,
+          environment: i.environment || "Staging",
+          releaseVersion: i.release_version || i.releaseVersion || "",
+          buildVersion: i.build_version || i.buildVersion || "",
+          dueDate: i.due_date || i.dueDate || "",
+          due_date: i.due_date || i.dueDate || "",
+          reopenCount: Number(i.reopen_count || i.reopenCount || 0),
+          createdAt: i.created_at || i.createdAt || new Date().toISOString(),
+          updatedAt: i.updated_at || i.updatedAt || new Date().toISOString()
+        }));
+      }
+
+      // Sprints
+      if (sprintsRes.status === 'fulfilled' && !sprintsRes.value.error && Array.isArray(sprintsRes.value.data)) {
+        this.data.sprints = sprintsRes.value.data.map(s => ({
+          ...s,
+          id: s.id,
+          projectId: s.project_id || s.projectId,
+          project_id: s.project_id || s.projectId,
+          name: s.name,
+          title: s.name,
+          goal: s.goal || "",
+          status: s.status || "Active",
+          startDate: s.start_date || s.startDate || "",
+          endDate: s.end_date || s.endDate || "",
+          dueDate: s.end_date || s.endDate || "",
+          createdAt: s.created_at || s.createdAt || new Date().toISOString()
+        }));
+      }
+
+      // Test Cases
+      if (testCasesRes.status === 'fulfilled' && !testCasesRes.value.error && Array.isArray(testCasesRes.value.data)) {
+        this.data.testCases = testCasesRes.value.data.map(t => ({
+          ...t,
+          id: t.id,
+          projectId: t.project_id || t.projectId,
+          suiteId: t.suite_id || t.suiteId,
+          key: t.key,
+          title: t.title,
+          type: t.type || "Functional",
+          priority: t.priority || "Medium",
+          status: t.status || "Ready",
+          expectedResult: t.expected_result || t.expectedResult || "",
+          automated: t.automated || false,
+          createdAt: t.created_at || t.createdAt || new Date().toISOString()
+        }));
+      }
+
+      // AI Generations & Email Logs
+      if (aiGenRes.status === 'fulfilled' && !aiGenRes.value.error && Array.isArray(aiGenRes.value.data)) {
+        this.data.aiGenerations = aiGenRes.value.data;
+      }
+      if (aiLogsRes.status === 'fulfilled' && !aiLogsRes.value.error && Array.isArray(aiLogsRes.value.data)) {
+        this.data.aiEmailLogs = aiLogsRes.value.data;
+      }
+
+      // 2. Auto-bind and auto-accept invitations for the active user
+      const activeUser = userId ? this.getUserById(userId) : this.getActiveUser();
+      if (activeUser && activeUser.email) {
+        const uEmail = (activeUser.email || '').toLowerCase().trim();
+        const uId = activeUser.id || activeUser.supabase_id;
+
+        // Auto-accept workspace_invitations
+        const userWsInvs = (this.data.invitations || []).filter(i => 
+          (i.invited_email || i.invitedEmail || '').toLowerCase().trim() === uEmail
+        );
+        for (const inv of userWsInvs) {
+          const wsId = inv.workspace_id || inv.workspaceId;
+          const targetWs = (this.data.workspaces || []).find(w => w.id === wsId);
+          if (targetWs) {
+            let existingMember = (this.data.workspaceMembers || []).find(m => 
+              (m.workspace_id === wsId || m.workspaceId === wsId) && m.email === uEmail
+            );
+            if (!existingMember) {
+              existingMember = {
+                id: `wm_${wsId}_${Date.now()}`,
+                workspace_id: wsId,
+                workspaceId: wsId,
+                user_id: uId,
+                userId: uId,
+                name: activeUser.name || uEmail.split('@')[0],
+                email: uEmail,
+                role: inv.role || 'QA_ENGINEER',
+                status: 'Active',
+                joinedAt: new Date().toISOString()
+              };
+              this.data.workspaceMembers.push(existingMember);
+              try {
+                await sb.from('workspace_members').upsert({
+                  id: existingMember.id,
+                  workspace_id: wsId,
+                  user_id: uId,
+                  name: existingMember.name,
+                  email: uEmail,
+                  role: existingMember.role
+                });
+              } catch (e) {}
+            }
+            if (inv.status === 'Pending' || inv.status === 'PENDING') {
+              inv.status = 'Accepted';
+              try {
+                await sb.from('workspace_invitations').update({ status: 'Accepted' }).eq('id', inv.id);
+              } catch (e) {}
+            }
+          }
+        }
+
+        // Auto-accept project_invitations
+        const userPrjInvs = (this.data.projectInvitations || []).filter(pi => 
+          (pi.invited_email || pi.invitedEmail || '').toLowerCase().trim() === uEmail
+        );
+        for (const pinv of userPrjInvs) {
+          const wsId = pinv.workspace_id || pinv.workspaceId;
+          const prjId = pinv.project_id || pinv.projectId;
+          const invRole = pinv.role || 'DEVELOPER';
+
+          if (wsId) {
+            let existingWm = (this.data.workspaceMembers || []).find(m => 
+              (m.workspace_id === wsId || m.workspaceId === wsId) && m.email === uEmail
+            );
+            if (!existingWm) {
+              existingWm = {
+                id: `wm_${wsId}_${Date.now()}`,
+                workspace_id: wsId,
+                workspaceId: wsId,
+                user_id: uId,
+                userId: uId,
+                name: activeUser.name || uEmail.split('@')[0],
+                email: uEmail,
+                role: invRole,
+                status: 'Active',
+                joinedAt: new Date().toISOString()
+              };
+              this.data.workspaceMembers.push(existingWm);
+              try {
+                await sb.from('workspace_members').upsert({
+                  id: existingWm.id,
+                  workspace_id: wsId,
+                  user_id: uId,
+                  name: existingWm.name,
+                  email: uEmail,
+                  role: invRole
+                });
+              } catch (e) {}
+            }
+          }
+
+          if (prjId) {
+            let existingPm = (this.data.projectMembers || []).find(pm => 
+              (pm.project_id === prjId || pm.projectId === prjId) && pm.email === uEmail
+            );
+            if (!existingPm) {
+              existingPm = {
+                id: `pm_${prjId}_${Date.now()}`,
+                project_id: prjId,
+                projectId: prjId,
+                user_id: uId,
+                userId: uId,
+                email: uEmail,
+                role: invRole,
+                status: 'Active',
+                joinedAt: new Date().toISOString()
+              };
+              this.data.projectMembers.push(existingPm);
+              try {
+                await sb.from('project_members').upsert({
+                  id: existingPm.id,
+                  project_id: prjId,
+                  user_id: uId,
+                  email: uEmail,
+                  role: invRole,
+                  status: 'Active'
+                });
+              } catch (e) {}
+            }
+          }
+
+          if (pinv.status === 'PENDING' || pinv.status === 'Pending') {
+            pinv.status = 'ACCEPTED';
+            try {
+              await sb.from('project_invitations').update({ status: 'ACCEPTED', accepted_at: new Date().toISOString() }).eq('id', pinv.id);
+            } catch (e) {}
+          }
+        }
+      }
+
+      // 3. Attach embedded members to each workspace
+      (this.data.workspaces || []).forEach(ws => {
+        ws.members = (this.data.workspaceMembers || []).filter(m => 
+          m.workspace_id === ws.id || m.workspaceId === ws.id
+        );
+      });
+
+      // 4. Resolve accessible workspaces & projects for active user
+      const userSpaces = this.getWorkspaces(userId || this.data.activeUserId);
+      if (userSpaces.length > 0) {
+        if (!this.data.activeWorkspaceId || !userSpaces.some(w => w.id === this.data.activeWorkspaceId)) {
+          this.data.activeWorkspaceId = userSpaces[0].id;
+        }
+        const spaceProjects = this.getAuthorizedProjects(this.data.activeWorkspaceId, userId || this.data.activeUserId);
+        if (spaceProjects.length > 0) {
+          if (!this.data.activeProjectId || !spaceProjects.some(p => p.id === this.data.activeProjectId || p.key === this.data.activeProjectId)) {
+            this.data.activeProjectId = spaceProjects[0].id;
+          }
+        } else {
+          this.data.activeProjectId = null;
+        }
+      } else {
+        this.data.activeWorkspaceId = null;
+        this.data.activeProjectId = null;
+      }
+
+      this.saveState();
+      this.notify();
+    } catch (err) {
+      console.warn("Supabase relational tables check:", err.message);
     }
   }
 
@@ -663,7 +824,25 @@ class AppStore {
         })) return true;
       }
 
-      // 4. Assigned project in this workspace
+      // 4. Workspace invitations (pending or accepted)
+      if (this.data.invitations && Array.isArray(this.data.invitations)) {
+        if (this.data.invitations.some(inv => {
+          if (inv.workspace_id !== ws.id && inv.workspaceId !== ws.id) return false;
+          const invEmail = (inv.invited_email || inv.invitedEmail || '').toLowerCase().trim();
+          return invEmail && invEmail === userEmail;
+        })) return true;
+      }
+
+      // 5. Project invitations
+      if (this.data.projectInvitations && Array.isArray(this.data.projectInvitations)) {
+        if (this.data.projectInvitations.some(pi => {
+          if (pi.workspace_id !== ws.id && pi.workspaceId !== ws.id) return false;
+          const piEmail = (pi.invited_email || pi.invitedEmail || '').toLowerCase().trim();
+          return piEmail && piEmail === userEmail;
+        })) return true;
+      }
+
+      // 6. Assigned project in this workspace
       const wsProjects = (this.data.projects || []).filter(p => p.workspace_id === ws.id || p.workspaceId === ws.id);
       if (wsProjects.some(p => {
         if (p.pmId === uid || p.pmId === activeUser.id || p.pmId === activeUser.name) return true;
