@@ -613,15 +613,28 @@ const AuthView = {
           }
         }
 
+        // If email confirmation is disabled or session returned immediately
+        if (data && data.session && data.session.user) {
+          store.setSupabaseUser(data.session.user);
+          store.data.activeWorkspaceId = null;
+          store.data.activeProjectId = null;
+          window.app.toast("Account Created", `Welcome, ${name}! Let's create your workspace.`, "success");
+          window.app.navigate("onboarding");
+          return;
+        }
+
         window.app.toast("Account Created", "We've sent a verification link to your email.", "success");
         window.app.navigate("verify-email", { email: encodeURIComponent(email) });
         return;
       }
 
       // Offline / Local Fallback
-      store.registerUser({ name, email, password, role: "PROJECT_MANAGER" });
-      window.app.toast("Account Created", "Please verify your email.", "success");
-      window.app.navigate("verify-email", { email: encodeURIComponent(email) });
+      const newUser = store.registerUser({ name, email, password, role: "PROJECT_MANAGER" });
+      store.data.activeUserId = newUser.id;
+      store.data.activeWorkspaceId = null;
+      store.data.activeProjectId = null;
+      window.app.toast("Account Created", `Welcome, ${name}! Let's set up your new workspace.`, "success");
+      window.app.navigate("onboarding");
     } catch (err) {
       window.app.toast("Sign Up Failed", err.message || "Failed to create account. Please try again.", "error");
     } finally {
@@ -702,9 +715,10 @@ const AuthView = {
       const userName = authUser.name || "User";
       window.app.toast("Signed In", `Welcome back, ${userName}!`, "success");
 
-      // 5. Navigate to appropriate workspace or dashboard
-      const spaces = store.getWorkspaces();
-      if (!spaces || spaces.length === 0) {
+      // 5. Navigate to appropriate workspace or onboarding
+      const userSpaces = store.getWorkspaces ? store.getWorkspaces(authUser.id) : [];
+      if (!userSpaces || userSpaces.length === 0) {
+        // Brand new user with 0 spaces -> Send directly to create their own space!
         window.app.navigate("onboarding");
       } else {
         const activeProj = store.getActiveProject();
@@ -956,11 +970,13 @@ const AuthView = {
   async renderAcceptProjectInvite(container, params = {}) {
     // Robust token extraction across all hash formats, search params, and session storage
     let token = params.token;
-    if (!token && window.location.hash.includes("token=")) {
-      token = (window.location.hash.match(/token=([^&#]+)/) || [])[1];
+    const currentHash = (window.location && window.location.hash) || "";
+    const currentSearch = (window.location && window.location.search) || "";
+    if (!token && currentHash.includes("token=")) {
+      token = (currentHash.match(/token=([^&#]+)/) || [])[1];
     }
-    if (!token && window.location.search.includes("token=")) {
-      token = (window.location.search.match(/token=([^&#]+)/) || [])[1];
+    if (!token && currentSearch.includes("token=")) {
+      token = (currentSearch.match(/token=([^&#]+)/) || [])[1];
     }
     if (!token && typeof sessionStorage !== 'undefined') {
       token = sessionStorage.getItem("pending_invite_token");

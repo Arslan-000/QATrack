@@ -79,24 +79,38 @@ const ProjectWorkspaceView = {
       this.activeTab = 'board';
     } else if (isViewer && !['overview', 'board', 'issues', 'docs', 'releases'].includes(this.activeTab)) {
       this.activeTab = 'overview';
+    } else if (this.activeTab === 'sprints') {
+      this.activeTab = 'overview';
     }
 
     const pm = store.getUserById(project.pmId || project.pm_id) || (project.pmId ? { name: project.pmId, initials: (project.pmId.substring(0, 2)).toUpperCase(), color: "bg-slate-950 text-[#bef264]" } : { name: "Unassigned Lead", initials: "PM", color: "bg-slate-950 text-[#bef264]" });
     const stats = store.getProjectStats(project.id);
     const allIssues = store.getIssues(project.id) || [];
-    const bugs = allIssues.filter(i => (i.type === "Bug" || i.type === "Defect") && i.status !== "Done" && i.status !== "Closed");
+    const bugs = allIssues.filter(i => {
+      const t = (i.type || i.issue_type || '').toLowerCase().trim();
+      return (t === "bug" || t === "defect") && i.status !== "Done" && i.status !== "Closed";
+    });
     const rawTestCases = store.getTestCases ? (store.getTestCases(project.id) || []) : [];
     
-    // Exact Real Dynamic Counts
-    const testCasesCount = rawTestCases.length;
-    const passedCount = rawTestCases.filter(t => t.status === 'Passed' || t.status === 'Pass' || t.lastExecutionStatus === 'Passed').length;
-    const failedCount = rawTestCases.filter(t => t.status === 'Failed' || t.status === 'Fail' || t.lastExecutionStatus === 'Failed').length;
-    const blockedCount = rawTestCases.filter(t => t.status === 'Blocked' || t.lastExecutionStatus === 'Blocked').length;
-    const defectsCount = bugs.length;
-    const passRatePct = testCasesCount > 0 ? Math.round((passedCount / testCasesCount) * 100) : 0;
-    const totalIssuesCount = allIssues.length;
-    const completedIssuesCount = allIssues.filter(i => i.status === "Done" || i.status === "Closed" || i.qaStatus === "Passed").length;
-    const deliveryProgressPct = totalIssuesCount > 0 ? Math.round((completedIssuesCount / totalIssuesCount) * 100) : 0;
+    // Dynamic Real Counts from Store and Project Scope
+    const testCasesCount = stats.testCasesCount || rawTestCases.length;
+    const passedCount = stats.passedCount !== undefined ? stats.passedCount : rawTestCases.filter(t => t.status === 'Passed' || t.status === 'Pass' || t.lastExecutionStatus === 'Passed').length;
+    const failedCount = stats.failedCount !== undefined ? stats.failedCount : rawTestCases.filter(t => t.status === 'Failed' || t.status === 'Fail' || t.lastExecutionStatus === 'Failed').length;
+    const blockedCount = stats.blockedCount !== undefined ? stats.blockedCount : rawTestCases.filter(t => t.status === 'Blocked' || t.lastExecutionStatus === 'Blocked').length;
+    const defectsCount = stats.activeBugs !== undefined ? stats.activeBugs : bugs.length;
+    const passRatePct = stats.testPassRate !== null && stats.testPassRate !== undefined ? stats.testPassRate : (testCasesCount > 0 ? Math.round((passedCount / testCasesCount) * 100) : 0);
+    const totalIssuesCount = stats.total !== undefined ? stats.total : allIssues.length;
+    const inProgressCount = stats.inProgress !== undefined ? stats.inProgress : allIssues.filter(i => (i.status || '').toLowerCase().includes('progress') || (i.status || '').toLowerCase().includes('dev')).length;
+    const qaCount = stats.qa !== undefined ? stats.qa : allIssues.filter(i => (i.status || '').toLowerCase().includes('qa') || (i.status || '').toLowerCase().includes('test')).length;
+    const completedIssuesCount = stats.completed !== undefined ? stats.completed : allIssues.filter(i => i.status === "Done" || i.status === "Closed" || i.qaStatus === "Passed").length;
+    const deliveryProgressPct = stats.progressPct !== undefined ? stats.progressPct : (totalIssuesCount > 0 ? Math.round((completedIssuesCount / totalIssuesCount) * 100) : 0);
+    const totalSP = stats.totalSP || 0;
+    const inProgressSP = stats.inProgressSP || 0;
+    const qaSP = stats.qaSP || 0;
+    const completedSP = stats.completedSP || 0;
+    const qualityScore = stats.qualityScore !== undefined ? stats.qualityScore : 100;
+
+    const unreadChatCount = (store.getUnreadChatCount && activeUser) ? store.getUnreadChatCount(project.id, null, activeUser.id) : 0;
 
     container.innerHTML = `
       <div class="space-y-4 sm:space-y-5 animate-fade-in pb-12">
@@ -124,6 +138,25 @@ const ProjectWorkspaceView = {
                   </div>
 
                   <div class="flex items-center gap-2 shrink-0">
+                    <!-- Project Chat Button -->
+                    <button 
+                      id="headerProjectChatBtn"
+                      onclick="if (typeof FloatingProjectChat !== 'undefined') FloatingProjectChat.toggle('${project.id}')" 
+                      class="flex items-center gap-1.5 px-3 py-1 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition shadow-2xs border border-slate-700/80 cursor-pointer select-none group"
+                      title="Open Project Chat (${project.name})"
+                    >
+                      <div class="relative flex items-center justify-center">
+                        <i data-lucide="message-square" class="w-3.5 h-3.5 text-emerald-400 group-hover:text-[#bef264] transition"></i>
+                        <span class="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                      </div>
+                      <span>Chat</span>
+                      ${unreadChatCount > 0 ? `
+                        <span class="px-1.5 py-0.2 rounded-full text-[9px] font-black bg-emerald-400 text-slate-950 font-mono">
+                          ${unreadChatCount}
+                        </span>
+                      ` : ''}
+                    </button>
+
                     <!-- Status Switcher Pill -->
                     <div class="relative inline-block">
                       <select onchange="ProjectWorkspaceView.handleStatusChange('${project.id}', this.value)" class="appearance-none pl-2.5 pr-6 py-0.5 rounded-full text-xs font-bold cursor-pointer transition focus:outline-none ${
@@ -146,11 +179,9 @@ const ProjectWorkspaceView = {
                         <i data-lucide="more-horizontal" class="w-4 h-4"></i>
                       </button>
                       <div id="prjQuickActionsMenu" class="hidden absolute right-0 top-9 w-52 bg-white rounded-xl shadow-xl border border-slate-200 p-1.5 z-30 text-xs animate-fade-in space-y-0.5">
-                        ${canCreateSprint ? `
-                          <button onclick="ProjectWorkspaceView.openCreateMilestoneModal(); ProjectWorkspaceView.toggleQuickActionsMenu()" class="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-50 text-slate-700 flex items-center gap-2 font-medium">
-                            <i data-lucide="flag" class="w-4 h-4 text-indigo-600"></i> New Sprint / Milestone
-                          </button>
-                        ` : ''}
+                        <button onclick="if (typeof FloatingProjectChat !== 'undefined') FloatingProjectChat.open('${project.id}'); ProjectWorkspaceView.toggleQuickActionsMenu()" class="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-50 text-slate-700 flex items-center gap-2 font-medium">
+                          <i data-lucide="message-square" class="w-4 h-4 text-emerald-600"></i> Open Project Chat
+                        </button>
                         <button onclick="ProjectWorkspaceView.exportProjectSummaryCSV(); ProjectWorkspaceView.toggleQuickActionsMenu()" class="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-50 text-slate-700 flex items-center gap-2 font-medium">
                           <i data-lucide="download" class="w-4 h-4 text-emerald-600"></i> Export Summary (CSV)
                         </button>
@@ -220,19 +251,40 @@ const ProjectWorkspaceView = {
             </div>
           </div>
 
-          <!-- Right Hero Card: Project Progress & Delivery Velocity -->
+          <!-- Right Hero Card: Project Quality & Delivery Velocity -->
           <div class="lg:col-span-4 bg-white rounded-2xl border border-slate-300 shadow-2xs p-5 flex flex-col justify-between space-y-4">
             
-            <!-- Project Progress Ring & Label -->
+            <!-- Project Quality & Health Index -->
             <div class="flex items-center gap-4">
-              <div class="w-14 h-14 rounded-full border-4 ${testCasesCount > 0 ? 'border-emerald-500 bg-emerald-50/50 text-emerald-950' : 'border-slate-300 bg-slate-50 text-slate-600'} flex flex-col items-center justify-center shrink-0 shadow-2xs font-mono font-black text-xs">
-                <span>${testCasesCount > 0 ? passRatePct : deliveryProgressPct}%</span>
+              <div class="w-14 h-14 rounded-full border-4 ${
+                qualityScore >= 90 ? 'border-emerald-500 bg-emerald-50/60 text-emerald-950' :
+                qualityScore >= 70 ? 'border-amber-500 bg-amber-50/60 text-amber-950' :
+                'border-rose-500 bg-rose-50/60 text-rose-950'
+              } flex flex-col items-center justify-center shrink-0 shadow-2xs font-mono font-black text-xs">
+                <span>${qualityScore}%</span>
+                <span class="text-[8px] uppercase tracking-tighter -mt-0.5 font-sans font-bold text-slate-500">Quality</span>
               </div>
               <div class="space-y-1 flex-1 min-w-0">
-                <h3 class="text-xs font-bold text-slate-900">Project Quality & Progress</h3>
-                <p class="text-[11px] text-slate-500 truncate">${testCasesCount > 0 ? `${passedCount}/${testCasesCount} test cases passed` : (totalIssuesCount > 0 ? `${completedIssuesCount}/${totalIssuesCount} work items delivered` : 'No work items recorded yet')}</p>
+                <div class="flex items-center justify-between">
+                  <h3 class="text-xs font-bold text-slate-900">Project Quality & Health</h3>
+                  <span class="px-1.5 py-0.2 rounded text-[9px] font-bold ${
+                    qualityScore >= 90 ? 'bg-emerald-100 text-emerald-800' :
+                    qualityScore >= 70 ? 'bg-amber-100 text-amber-800' :
+                    'bg-rose-100 text-rose-800'
+                  }">
+                    ${qualityScore >= 90 ? 'Optimal' : qualityScore >= 70 ? 'Moderate' : 'At Risk'}
+                  </span>
+                </div>
+                <p class="text-[11px] text-slate-500 truncate">
+                  ${testCasesCount > 0 
+                    ? `${passedCount}/${testCasesCount} tests passed • ${defectsCount} open defects` 
+                    : (totalIssuesCount > 0 
+                      ? `${totalIssuesCount} work items (${totalSP} SP) • ${defectsCount === 0 ? '0 defects (Pristine Health)' : `${defectsCount} open defects`}` 
+                      : 'No work items recorded yet')
+                  }
+                </p>
                 <div class="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
-                  <div class="h-full ${testCasesCount > 0 ? 'bg-emerald-500' : 'bg-slate-900'} rounded-full" style="width: ${testCasesCount > 0 ? passRatePct : deliveryProgressPct}%"></div>
+                  <div class="h-full ${qualityScore >= 90 ? 'bg-emerald-500' : (qualityScore >= 70 ? 'bg-amber-500' : 'bg-rose-500')} rounded-full transition-all duration-500" style="width: ${qualityScore}%"></div>
                 </div>
               </div>
             </div>
@@ -245,7 +297,11 @@ const ProjectWorkspaceView = {
                 </div>
                 <span>Delivery Velocity</span>
               </div>
-              <span class="font-mono font-bold text-slate-950 text-xs">${totalIssuesCount > 0 ? `${deliveryProgressPct}% (${completedIssuesCount}/${totalIssuesCount} Delivered)` : '0% (0/0 Delivered)'}</span>
+              <span class="font-mono font-bold text-slate-950 text-xs">
+                ${totalIssuesCount > 0 
+                  ? `${deliveryProgressPct}% (${completedIssuesCount}/${totalIssuesCount} Delivered${inProgressCount > 0 ? ` • ${inProgressCount} in Dev` : ''})` 
+                  : '0% (0/0 Delivered)'}
+              </span>
             </div>
 
           </div>
@@ -253,84 +309,161 @@ const ProjectWorkspaceView = {
         </div>
 
         <!-- =========================================================================
-             2. TOP 5 QA & PROJECT KPI CARDS ROW
+             2. TOP 5 QA & PROJECT KPI CARDS ROW (100% REAL DYNAMIC DATA)
              ========================================================================= -->
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
           
-          <!-- Card 1: Total Test Cases -->
-          <div onclick="ProjectWorkspaceView.switchTab('qa')" class="dash-bento-card bg-white rounded-2xl border border-slate-300 shadow-2xs hover:border-slate-400 hover:shadow-md transition p-4 flex items-center justify-between cursor-pointer group">
-            <div class="flex items-center gap-3 min-w-0">
-              <div class="w-10 h-10 rounded-xl bg-slate-100 text-slate-800 flex items-center justify-center shrink-0 border border-slate-200 group-hover:scale-105 transition-transform">
-                <i data-lucide="clipboard-list" class="w-5 h-5"></i>
+          ${testCasesCount > 0 ? `
+            <!-- Card 1: Total Test Cases -->
+            <div onclick="ProjectWorkspaceView.switchTab('qa')" class="dash-bento-card bg-white rounded-2xl border border-slate-300 shadow-2xs hover:border-slate-400 hover:shadow-md transition p-4 flex items-center justify-between cursor-pointer group">
+              <div class="flex items-center gap-3 min-w-0">
+                <div class="w-10 h-10 rounded-xl bg-slate-100 text-slate-800 flex items-center justify-center shrink-0 border border-slate-200 group-hover:scale-105 transition-transform">
+                  <i data-lucide="clipboard-list" class="w-5 h-5"></i>
+                </div>
+                <div class="min-w-0">
+                  <div class="text-[10px] uppercase font-bold text-slate-400 truncate">Total Test Cases</div>
+                  <div class="text-xl font-black text-slate-950 font-mono">${testCasesCount}</div>
+                  <div class="text-[10px] text-slate-400 truncate">${totalIssuesCount} work items linked</div>
+                </div>
               </div>
-              <div class="min-w-0">
-                <div class="text-[10px] uppercase font-bold text-slate-400 truncate">Total Test Cases</div>
-                <div class="text-xl font-black text-slate-950 font-mono">${testCasesCount}</div>
-                <div class="text-[10px] text-slate-400 truncate">All test cases in this project</div>
-              </div>
+              <i data-lucide="chevron-right" class="w-4 h-4 text-slate-300 group-hover:text-slate-900 group-hover:translate-x-0.5 transition shrink-0 ml-1"></i>
             </div>
-            <i data-lucide="chevron-right" class="w-4 h-4 text-slate-300 group-hover:text-slate-900 group-hover:translate-x-0.5 transition shrink-0 ml-1"></i>
-          </div>
 
-          <!-- Card 2: Passed -->
-          <div onclick="ProjectWorkspaceView.switchTab('qa')" class="dash-bento-card bg-white rounded-2xl border border-slate-300 shadow-2xs hover:border-slate-400 hover:shadow-md transition p-4 flex items-center justify-between cursor-pointer group">
-            <div class="flex items-center gap-3 min-w-0">
-              <div class="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0 border border-emerald-100 group-hover:scale-105 transition-transform">
-                <i data-lucide="check-circle-2" class="w-5 h-5"></i>
+            <!-- Card 2: Passed -->
+            <div onclick="ProjectWorkspaceView.switchTab('qa')" class="dash-bento-card bg-white rounded-2xl border border-slate-300 shadow-2xs hover:border-slate-400 hover:shadow-md transition p-4 flex items-center justify-between cursor-pointer group">
+              <div class="flex items-center gap-3 min-w-0">
+                <div class="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0 border border-emerald-100 group-hover:scale-105 transition-transform">
+                  <i data-lucide="check-circle-2" class="w-5 h-5"></i>
+                </div>
+                <div class="min-w-0">
+                  <div class="text-[10px] uppercase font-bold text-slate-400 truncate">Passed</div>
+                  <div class="text-xl font-black text-slate-950 font-mono">${passedCount}</div>
+                  <div class="text-[10px] text-emerald-600 font-semibold truncate">${passRatePct}% pass rate</div>
+                </div>
               </div>
-              <div class="min-w-0">
-                <div class="text-[10px] uppercase font-bold text-slate-400 truncate">Passed</div>
-                <div class="text-xl font-black text-slate-950 font-mono">${passedCount}</div>
-                <div class="text-[10px] text-emerald-600 font-semibold truncate">${passRatePct}% pass rate</div>
-              </div>
+              <i data-lucide="chevron-right" class="w-4 h-4 text-slate-300 group-hover:text-emerald-600 group-hover:translate-x-0.5 transition shrink-0 ml-1"></i>
             </div>
-            <i data-lucide="chevron-right" class="w-4 h-4 text-slate-300 group-hover:text-emerald-600 group-hover:translate-x-0.5 transition shrink-0 ml-1"></i>
-          </div>
 
-          <!-- Card 3: Failed -->
-          <div onclick="ProjectWorkspaceView.switchTab('qa')" class="dash-bento-card bg-white rounded-2xl border border-slate-300 shadow-2xs hover:border-slate-400 hover:shadow-md transition p-4 flex items-center justify-between cursor-pointer group">
-            <div class="flex items-center gap-3 min-w-0">
-              <div class="w-10 h-10 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center shrink-0 border border-rose-100 group-hover:scale-105 transition-transform">
-                <i data-lucide="x-circle" class="w-5 h-5"></i>
+            <!-- Card 3: Failed -->
+            <div onclick="ProjectWorkspaceView.switchTab('qa')" class="dash-bento-card bg-white rounded-2xl border border-slate-300 shadow-2xs hover:border-slate-400 hover:shadow-md transition p-4 flex items-center justify-between cursor-pointer group">
+              <div class="flex items-center gap-3 min-w-0">
+                <div class="w-10 h-10 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center shrink-0 border border-rose-100 group-hover:scale-105 transition-transform">
+                  <i data-lucide="x-circle" class="w-5 h-5"></i>
+                </div>
+                <div class="min-w-0">
+                  <div class="text-[10px] uppercase font-bold text-slate-400 truncate">Failed</div>
+                  <div class="text-xl font-black text-slate-950 font-mono">${failedCount}</div>
+                  <div class="text-[10px] ${failedCount > 0 ? 'text-rose-600 font-bold' : 'text-slate-400'} truncate">${failedCount === 0 ? 'No failures' : `${failedCount} failing tests`}</div>
+                </div>
               </div>
-              <div class="min-w-0">
-                <div class="text-[10px] uppercase font-bold text-slate-400 truncate">Failed</div>
-                <div class="text-xl font-black text-slate-950 font-mono">${failedCount}</div>
-                <div class="text-[10px] ${failedCount > 0 ? 'text-rose-600 font-bold' : 'text-slate-400'} truncate">${failedCount === 0 ? 'No failures' : `${failedCount} failing tests`}</div>
-              </div>
+              <i data-lucide="chevron-right" class="w-4 h-4 text-slate-300 group-hover:text-rose-600 group-hover:translate-x-0.5 transition shrink-0 ml-1"></i>
             </div>
-            <i data-lucide="chevron-right" class="w-4 h-4 text-slate-300 group-hover:text-rose-600 group-hover:translate-x-0.5 transition shrink-0 ml-1"></i>
-          </div>
 
-          <!-- Card 4: Blocked -->
-          <div onclick="ProjectWorkspaceView.switchTab('qa')" class="dash-bento-card bg-white rounded-2xl border border-slate-300 shadow-2xs hover:border-slate-400 hover:shadow-md transition p-4 flex items-center justify-between cursor-pointer group">
-            <div class="flex items-center gap-3 min-w-0">
-              <div class="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center shrink-0 border border-amber-100 group-hover:scale-105 transition-transform">
-                <i data-lucide="clock" class="w-5 h-5"></i>
+            <!-- Card 4: Blocked -->
+            <div onclick="ProjectWorkspaceView.switchTab('qa')" class="dash-bento-card bg-white rounded-2xl border border-slate-300 shadow-2xs hover:border-slate-400 hover:shadow-md transition p-4 flex items-center justify-between cursor-pointer group">
+              <div class="flex items-center gap-3 min-w-0">
+                <div class="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center shrink-0 border border-amber-100 group-hover:scale-105 transition-transform">
+                  <i data-lucide="clock" class="w-5 h-5"></i>
+                </div>
+                <div class="min-w-0">
+                  <div class="text-[10px] uppercase font-bold text-slate-400 truncate">Blocked</div>
+                  <div class="text-xl font-black text-slate-950 font-mono">${blockedCount}</div>
+                  <div class="text-[10px] text-slate-400 truncate">${blockedCount === 0 ? 'No blocked tests' : `${blockedCount} blocked`}</div>
+                </div>
               </div>
-              <div class="min-w-0">
-                <div class="text-[10px] uppercase font-bold text-slate-400 truncate">Blocked</div>
-                <div class="text-xl font-black text-slate-950 font-mono">${blockedCount}</div>
-                <div class="text-[10px] text-slate-400 truncate">${blockedCount === 0 ? 'No blocked tests' : `${blockedCount} blocked`}</div>
-              </div>
+              <i data-lucide="chevron-right" class="w-4 h-4 text-slate-300 group-hover:text-amber-600 group-hover:translate-x-0.5 transition shrink-0 ml-1"></i>
             </div>
-            <i data-lucide="chevron-right" class="w-4 h-4 text-slate-300 group-hover:text-amber-600 group-hover:translate-x-0.5 transition shrink-0 ml-1"></i>
-          </div>
 
-          <!-- Card 5: Defects -->
-          <div onclick="ProjectWorkspaceView.switchTab('issues')" class="dash-bento-card bg-white rounded-2xl border border-slate-300 shadow-2xs hover:border-slate-400 hover:shadow-md transition p-4 flex items-center justify-between cursor-pointer group">
-            <div class="flex items-center gap-3 min-w-0">
-              <div class="w-10 h-10 rounded-xl bg-teal-50 text-teal-600 flex items-center justify-center shrink-0 border border-teal-100 group-hover:scale-105 transition-transform">
-                <i data-lucide="bug" class="w-5 h-5"></i>
+            <!-- Card 5: Defects -->
+            <div onclick="ProjectWorkspaceView.switchTab('issues')" class="dash-bento-card bg-white rounded-2xl border border-slate-300 shadow-2xs hover:border-slate-400 hover:shadow-md transition p-4 flex items-center justify-between cursor-pointer group">
+              <div class="flex items-center gap-3 min-w-0">
+                <div class="w-10 h-10 rounded-xl bg-teal-50 text-teal-600 flex items-center justify-center shrink-0 border border-teal-100 group-hover:scale-105 transition-transform">
+                  <i data-lucide="bug" class="w-5 h-5"></i>
+                </div>
+                <div class="min-w-0">
+                  <div class="text-[10px] uppercase font-bold text-slate-400 truncate">Defects</div>
+                  <div class="text-xl font-black text-slate-950 font-mono">${defectsCount}</div>
+                  <div class="text-[10px] ${defectsCount > 0 ? 'text-rose-600 font-bold' : 'text-slate-400'} truncate">${defectsCount === 0 ? '0 open defects' : `${defectsCount} open defects`}</div>
+                </div>
               </div>
-              <div class="min-w-0">
-                <div class="text-[10px] uppercase font-bold text-slate-400 truncate">Defects</div>
-                <div class="text-xl font-black text-slate-950 font-mono">${defectsCount}</div>
-                <div class="text-[10px] ${defectsCount > 0 ? 'text-rose-600 font-bold' : 'text-slate-400'} truncate">${defectsCount === 0 ? 'No open defects' : `${defectsCount} open defects`}</div>
-              </div>
+              <i data-lucide="chevron-right" class="w-4 h-4 text-slate-300 group-hover:text-teal-600 group-hover:translate-x-0.5 transition shrink-0 ml-1"></i>
             </div>
-            <i data-lucide="chevron-right" class="w-4 h-4 text-slate-300 group-hover:text-teal-600 group-hover:translate-x-0.5 transition shrink-0 ml-1"></i>
-          </div>
+          ` : `
+            <!-- Card 1: Total Work Items -->
+            <div onclick="ProjectWorkspaceView.switchTab('board')" class="dash-bento-card bg-white rounded-2xl border border-slate-300 shadow-2xs hover:border-slate-400 hover:shadow-md transition p-4 flex items-center justify-between cursor-pointer group">
+              <div class="flex items-center gap-3 min-w-0">
+                <div class="w-10 h-10 rounded-xl bg-slate-100 text-slate-800 flex items-center justify-center shrink-0 border border-slate-200 group-hover:scale-105 transition-transform">
+                  <i data-lucide="clipboard-list" class="w-5 h-5"></i>
+                </div>
+                <div class="min-w-0">
+                  <div class="text-[10px] uppercase font-bold text-slate-400 truncate">Total Work Items</div>
+                  <div class="text-xl font-black text-slate-950 font-mono">${totalIssuesCount}</div>
+                  <div class="text-[10px] text-slate-500 font-medium truncate">${totalSP > 0 ? `${totalSP} Story Points total` : 'All project items'}</div>
+                </div>
+              </div>
+              <i data-lucide="chevron-right" class="w-4 h-4 text-slate-300 group-hover:text-slate-900 group-hover:translate-x-0.5 transition shrink-0 ml-1"></i>
+            </div>
+
+            <!-- Card 2: In Development -->
+            <div onclick="ProjectWorkspaceView.switchTab('board')" class="dash-bento-card bg-white rounded-2xl border border-slate-300 shadow-2xs hover:border-slate-400 hover:shadow-md transition p-4 flex items-center justify-between cursor-pointer group">
+              <div class="flex items-center gap-3 min-w-0">
+                <div class="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center shrink-0 border border-amber-100 group-hover:scale-105 transition-transform">
+                  <i data-lucide="code-2" class="w-5 h-5"></i>
+                </div>
+                <div class="min-w-0">
+                  <div class="text-[10px] uppercase font-bold text-slate-400 truncate">In Development</div>
+                  <div class="text-xl font-black text-slate-950 font-mono">${inProgressCount}</div>
+                  <div class="text-[10px] text-amber-700 font-semibold truncate">${inProgressSP > 0 ? `${inProgressSP} SP in progress` : `${inProgressCount} active items`}</div>
+                </div>
+              </div>
+              <i data-lucide="chevron-right" class="w-4 h-4 text-slate-300 group-hover:text-amber-600 group-hover:translate-x-0.5 transition shrink-0 ml-1"></i>
+            </div>
+
+            <!-- Card 3: Ready for QA -->
+            <div onclick="ProjectWorkspaceView.switchTab('board')" class="dash-bento-card bg-white rounded-2xl border border-slate-300 shadow-2xs hover:border-slate-400 hover:shadow-md transition p-4 flex items-center justify-between cursor-pointer group">
+              <div class="flex items-center gap-3 min-w-0">
+                <div class="w-10 h-10 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center shrink-0 border border-purple-100 group-hover:scale-105 transition-transform">
+                  <i data-lucide="shield-check" class="w-5 h-5"></i>
+                </div>
+                <div class="min-w-0">
+                  <div class="text-[10px] uppercase font-bold text-slate-400 truncate">Ready for QA</div>
+                  <div class="text-xl font-black text-slate-950 font-mono">${qaCount}</div>
+                  <div class="text-[10px] text-purple-700 font-semibold truncate">${qaSP > 0 ? `${qaSP} SP in QA queue` : (qaCount > 0 ? `${qaCount} awaiting QA` : 'QA queue ready')}</div>
+                </div>
+              </div>
+              <i data-lucide="chevron-right" class="w-4 h-4 text-slate-300 group-hover:text-purple-600 group-hover:translate-x-0.5 transition shrink-0 ml-1"></i>
+            </div>
+
+            <!-- Card 4: Completed -->
+            <div onclick="ProjectWorkspaceView.switchTab('board')" class="dash-bento-card bg-white rounded-2xl border border-slate-300 shadow-2xs hover:border-slate-400 hover:shadow-md transition p-4 flex items-center justify-between cursor-pointer group">
+              <div class="flex items-center gap-3 min-w-0">
+                <div class="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0 border border-emerald-100 group-hover:scale-105 transition-transform">
+                  <i data-lucide="check-circle-2" class="w-5 h-5"></i>
+                </div>
+                <div class="min-w-0">
+                  <div class="text-[10px] uppercase font-bold text-slate-400 truncate">Completed</div>
+                  <div class="text-xl font-black text-slate-950 font-mono">${completedIssuesCount}</div>
+                  <div class="text-[10px] text-emerald-700 font-semibold truncate">${deliveryProgressPct}% delivered (${completedSP} SP)</div>
+                </div>
+              </div>
+              <i data-lucide="chevron-right" class="w-4 h-4 text-slate-300 group-hover:text-emerald-600 group-hover:translate-x-0.5 transition shrink-0 ml-1"></i>
+            </div>
+
+            <!-- Card 5: Defects & Health -->
+            <div onclick="ProjectWorkspaceView.switchTab('issues')" class="dash-bento-card bg-white rounded-2xl border border-slate-300 shadow-2xs hover:border-slate-400 hover:shadow-md transition p-4 flex items-center justify-between cursor-pointer group">
+              <div class="flex items-center gap-3 min-w-0">
+                <div class="w-10 h-10 rounded-xl ${defectsCount > 0 ? 'bg-rose-50 text-rose-600 border border-rose-100' : 'bg-teal-50 text-teal-600 border border-teal-100'} flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                  <i data-lucide="bug" class="w-5 h-5"></i>
+                </div>
+                <div class="min-w-0">
+                  <div class="text-[10px] uppercase font-bold text-slate-400 truncate">Defects & Health</div>
+                  <div class="text-xl font-black text-slate-950 font-mono">${defectsCount}</div>
+                  <div class="text-[10px] ${defectsCount > 0 ? 'text-rose-600 font-bold' : 'text-teal-700 font-semibold'} truncate">${defectsCount === 0 ? '0 defects • 100% Health' : `${stats.criticalBugs || 0} Critical • ${stats.highBugs || 0} High`}</div>
+                </div>
+              </div>
+              <i data-lucide="chevron-right" class="w-4 h-4 text-slate-300 group-hover:text-teal-600 group-hover:translate-x-0.5 transition shrink-0 ml-1"></i>
+            </div>
+          `}
 
         </div>
 
@@ -356,11 +489,6 @@ const ProjectWorkspaceView = {
             <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-slate-200 text-slate-700 font-bold">${allIssues.length}</span>
           </button>
 
-          <button onclick="FloatingProjectChat.open('${project.id}')" class="project-tab-btn px-3.5 py-2 rounded-xl font-bold flex items-center gap-2 transition shrink-0 text-slate-600 hover:text-slate-900 hover:bg-slate-100">
-            <i data-lucide="message-square" class="w-4 h-4 text-emerald-600"></i>
-            <span>Project Chat</span>
-            ${store.getUnreadChatCount(project.id) > 0 ? `<span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-emerald-100 text-emerald-700 font-bold">${store.getUnreadChatCount(project.id)}</span>` : ''}
-          </button>
 
           <button onclick="ProjectWorkspaceView.switchTab('releases')" class="project-tab-btn px-3.5 py-2 rounded-xl font-bold flex items-center gap-2 transition shrink-0 ${this.activeTab === 'releases' ? 'active' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'}">
             <i data-lucide="shield-alert" class="w-4 h-4 text-purple-600"></i>
@@ -369,16 +497,10 @@ const ProjectWorkspaceView = {
           </button>
 
           ${!isDev && !isViewer ? `
-            <button onclick="ProjectWorkspaceView.switchTab('sprints')" class="project-tab-btn px-3.5 py-2 rounded-xl font-bold flex items-center gap-2 transition shrink-0 ${this.activeTab === 'sprints' ? 'active' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'}">
-              <i data-lucide="flag" class="w-4 h-4 text-purple-600"></i>
-              <span>Sprints & Roadmap</span>
-              ${stats.activeMilestone ? `<span class="px-1.5 py-0.2 rounded-full text-[10px] font-semibold bg-purple-100 text-purple-700">${stats.activeMilestone.title.split(":")[0]}</span>` : ''}
-            </button>
-
             <button onclick="ProjectWorkspaceView.switchTab('qa')" class="project-tab-btn px-3.5 py-2 rounded-xl font-bold flex items-center gap-2 transition shrink-0 ${this.activeTab === 'qa' ? 'active' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'}">
               <i data-lucide="shield-check" class="w-4 h-4 text-emerald-600"></i>
               <span>QA & Quality Telemetry</span>
-              <span class="px-1.5 py-0.2 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-700 font-mono">${passRatePct}%</span>
+              <span class="px-1.5 py-0.2 rounded-full text-[10px] font-semibold ${qualityScore >= 90 ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'} font-mono">${testCasesCount > 0 ? `${passRatePct}%` : `${qualityScore}%`}</span>
             </button>
 
             <button onclick="ProjectWorkspaceView.switchTab('team')" class="project-tab-btn px-3.5 py-2 rounded-xl font-bold flex items-center gap-2 transition shrink-0 ${this.activeTab === 'team' ? 'active' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'}">
@@ -430,35 +552,63 @@ const ProjectWorkspaceView = {
   // =========================================================================
   renderOverviewTab(project, stats) {
     const allIssues = store.getIssues(project.id) || [];
-    const bugs = allIssues.filter(i => (i.type === "Bug" || i.type === "Defect") && i.status !== "Done" && i.status !== "Closed");
+    const bugs = allIssues.filter(i => {
+      const t = (i.type || i.issue_type || '').toLowerCase().trim();
+      return (t === "bug" || t === "defect") && i.status !== "Done" && i.status !== "Closed";
+    });
     const rawTestCases = store.getTestCases ? (store.getTestCases(project.id) || []) : [];
     const pm = store.getUserById(project.pmId || project.pm_id) || (project.pmId ? { name: project.pmId, initials: (project.pmId.substring(0, 2)).toUpperCase(), color: "bg-slate-950 text-[#bef264]" } : { name: "Unassigned Lead", initials: "PM", color: "bg-slate-950 text-[#bef264]" });
 
     // Dynamic Real Counts
-    const testCasesCount = rawTestCases.length;
-    const passedCount = rawTestCases.filter(t => t.status === 'Passed' || t.status === 'Pass' || t.lastExecutionStatus === 'Passed').length;
-    const failedCount = rawTestCases.filter(t => t.status === 'Failed' || t.status === 'Fail' || t.lastExecutionStatus === 'Failed').length;
-    const blockedCount = rawTestCases.filter(t => t.status === 'Blocked' || t.lastExecutionStatus === 'Blocked').length;
-    const passRatePct = testCasesCount > 0 ? Math.round((passedCount / testCasesCount) * 100) : 0;
+    const testCasesCount = stats.testCasesCount || rawTestCases.length;
+    const passedCount = stats.passedCount !== undefined ? stats.passedCount : rawTestCases.filter(t => t.status === 'Passed' || t.status === 'Pass' || t.lastExecutionStatus === 'Passed').length;
+    const failedCount = stats.failedCount !== undefined ? stats.failedCount : rawTestCases.filter(t => t.status === 'Failed' || t.status === 'Fail' || t.lastExecutionStatus === 'Failed').length;
+    const blockedCount = stats.blockedCount !== undefined ? stats.blockedCount : rawTestCases.filter(t => t.status === 'Blocked' || t.lastExecutionStatus === 'Blocked').length;
+    const passRatePct = stats.testPassRate !== null && stats.testPassRate !== undefined ? stats.testPassRate : (testCasesCount > 0 ? Math.round((passedCount / testCasesCount) * 100) : 0);
+    const totalIssuesCount = stats.total !== undefined ? stats.total : allIssues.length;
+    const inProgressCount = stats.inProgress !== undefined ? stats.inProgress : allIssues.filter(i => (i.status || '').toLowerCase().includes('progress') || (i.status || '').toLowerCase().includes('dev')).length;
+    const qaCount = stats.qa !== undefined ? stats.qa : allIssues.filter(i => (i.status || '').toLowerCase().includes('qa') || (i.status || '').toLowerCase().includes('test')).length;
+    const completedIssuesCount = stats.completed !== undefined ? stats.completed : allIssues.filter(i => i.status === "Done" || i.status === "Closed" || i.qaStatus === "Passed").length;
+    const deliveryProgressPct = stats.progressPct !== undefined ? stats.progressPct : (totalIssuesCount > 0 ? Math.round((completedIssuesCount / totalIssuesCount) * 100) : 0);
+    const totalSP = stats.totalSP !== undefined ? stats.totalSP : allIssues.reduce((acc, i) => acc + (Number(i.storyPoints || i.story_points || i.points || 0) || 0), 0);
+    const inProgressSP = stats.inProgressSP || 0;
+    const qaSP = stats.qaSP || 0;
+    const completedSP = stats.completedSP || 0;
+    const backlogSP = stats.backlogSP || 0;
+    const qualityScore = stats.qualityScore !== undefined ? stats.qualityScore : 100;
 
-    // Real dynamic module aggregation
+    // Real dynamic module aggregation (from test cases OR work items)
     const moduleMap = {};
-    rawTestCases.forEach(tc => {
-      const mod = tc.module || tc.category || tc.suiteName || tc.suite || 'Core Features';
-      if (!moduleMap[mod]) moduleMap[mod] = { total: 0, passed: 0, failed: 0, blocked: 0 };
-      moduleMap[mod].total++;
-      if (tc.status === 'Passed' || tc.status === 'Pass' || tc.lastExecutionStatus === 'Passed') {
-        moduleMap[mod].passed++;
-      } else if (tc.status === 'Failed' || tc.status === 'Fail' || tc.lastExecutionStatus === 'Failed') {
-        moduleMap[mod].failed++;
-      } else if (tc.status === 'Blocked' || tc.lastExecutionStatus === 'Blocked') {
-        moduleMap[mod].blocked++;
-      }
-    });
+    if (testCasesCount > 0) {
+      rawTestCases.forEach(tc => {
+        const mod = tc.module || tc.category || tc.suiteName || tc.suite || 'Core Features';
+        if (!moduleMap[mod]) moduleMap[mod] = { total: 0, passed: 0, failed: 0, blocked: 0 };
+        moduleMap[mod].total++;
+        if (tc.status === 'Passed' || tc.status === 'Pass' || tc.lastExecutionStatus === 'Passed') {
+          moduleMap[mod].passed++;
+        } else if (tc.status === 'Failed' || tc.status === 'Fail' || tc.lastExecutionStatus === 'Failed') {
+          moduleMap[mod].failed++;
+        } else if (tc.status === 'Blocked' || tc.lastExecutionStatus === 'Blocked') {
+          moduleMap[mod].blocked++;
+        }
+      });
+    } else if (allIssues.length > 0) {
+      allIssues.forEach(iss => {
+        const mod = iss.module || iss.category || iss.component || 'Core Features';
+        if (!moduleMap[mod]) moduleMap[mod] = { total: 0, passed: 0, failed: 0, blocked: 0 };
+        moduleMap[mod].total++;
+        if (iss.status === 'Done' || iss.status === 'Closed' || iss.qaStatus === 'Passed') {
+          moduleMap[mod].passed++;
+        } else if (iss.status === 'Ready for QA' || iss.status === 'In Progress' || iss.status === 'In Development') {
+          moduleMap[mod].passed += 0.5;
+        }
+      });
+    }
+
     const modules = Object.entries(moduleMap).map(([name, data]) => ({
       name,
       total: data.total,
-      passed: data.passed,
+      passed: Math.floor(data.passed),
       failed: data.failed,
       blocked: data.blocked,
       pct: data.total > 0 ? Math.round((data.passed / data.total) * 100) : 0
@@ -547,7 +697,7 @@ const ProjectWorkspaceView = {
                   </div>
                   <h3 class="text-xs font-bold text-slate-900">Module Coverage</h3>
                 </div>
-                <span class="text-[10px] font-bold text-slate-400 font-mono">${modules.length > 0 ? `${modules.length} Modules` : '0 Modules'}</span>
+                <span class="text-[10px] font-bold text-slate-400 font-mono">${modules.length > 0 ? `${modules.length} Modules` : (totalIssuesCount > 0 ? '1 Module' : '0 Modules')}</span>
               </div>
 
               ${modules.length > 0 ? `
@@ -559,7 +709,7 @@ const ProjectWorkspaceView = {
                         <span class="text-[11px] font-bold truncate">${m.name}</span>
                       </div>
                       <div class="text-xs font-black ${m.pct >= 80 ? 'text-emerald-950' : 'text-slate-900'} font-mono">${m.pct}%</div>
-                      <div class="text-[10px] text-slate-500 font-medium">${m.passed}/${m.total} test cases</div>
+                      <div class="text-[10px] text-slate-500 font-medium">${m.passed}/${m.total} ${testCasesCount > 0 ? 'test cases' : 'items'}</div>
                     </div>
                   `).join('')}
                 </div>
@@ -570,7 +720,7 @@ const ProjectWorkspaceView = {
                   </div>
                   <p class="font-bold text-slate-700">No Module Test Suites Created</p>
                   <p class="text-[11px] text-slate-400 leading-relaxed max-w-xs mx-auto">
-                    Create test cases in the QA Telemetry tab to track real-time automated coverage by module.
+                    Create test cases in the QA Telemetry tab or add work item tasks to track coverage by component.
                   </p>
                   <button onclick="ProjectWorkspaceView.switchTab('qa')" class="px-3 py-1.5 bg-slate-950 text-[#bef264] rounded-lg text-xs font-bold hover:bg-slate-900 transition cursor-pointer">
                     + Add Test Cases
@@ -586,17 +736,17 @@ const ProjectWorkspaceView = {
                ========================================================================= -->
           <div class="lg:col-span-5 space-y-4">
             
-            <!-- Test Execution Status Donut Card -->
+            <!-- Test & Work Execution Status Donut Card -->
             <div class="bg-white rounded-2xl border border-slate-300 shadow-2xs p-5 space-y-4">
               <div class="flex items-center justify-between pb-3 border-b border-slate-100">
                 <div class="flex items-center gap-2">
                   <div class="p-1.5 rounded-lg bg-[#f7fee7] text-[#4d7c0f] font-bold">
                     <i data-lucide="activity" class="w-4 h-4"></i>
                   </div>
-                  <h3 class="text-xs font-bold text-slate-900">Test Execution Status</h3>
+                  <h3 class="text-xs font-bold text-slate-900">${testCasesCount > 0 ? 'Test Execution Status' : 'Work Item Pipeline Status'}</h3>
                 </div>
-                <button onclick="ProjectWorkspaceView.switchTab('qa')" class="text-[11px] font-bold text-slate-900 hover:text-[#4d7c0f] hover:underline flex items-center gap-1 cursor-pointer">
-                  View Report
+                <button onclick="ProjectWorkspaceView.switchTab('${testCasesCount > 0 ? 'qa' : 'board'}')" class="text-[11px] font-bold text-slate-900 hover:text-[#4d7c0f] hover:underline flex items-center gap-1 cursor-pointer">
+                  ${testCasesCount > 0 ? 'View QA Report' : 'View Kanban'}
                 </button>
               </div>
 
@@ -606,69 +756,107 @@ const ProjectWorkspaceView = {
                 <div class="relative w-28 h-28 flex items-center justify-center shrink-0">
                   <svg class="w-28 h-28 transform -rotate-90" viewBox="0 0 36 36">
                     <path class="text-slate-100" stroke-width="3.5" stroke="currentColor" fill="none" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
-                    ${testCasesCount > 0 ? `
-                      <path class="text-emerald-500" stroke-dasharray="${passRatePct}, 100" stroke-width="3.5" stroke-linecap="round" stroke="currentColor" fill="none" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
-                    ` : ''}
+                    <path class="${qualityScore >= 90 ? 'text-emerald-500' : 'text-amber-500'}" stroke-dasharray="${testCasesCount > 0 ? passRatePct : qualityScore}, 100" stroke-width="3.5" stroke-linecap="round" stroke="currentColor" fill="none" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
                   </svg>
                   <div class="absolute flex flex-col items-center justify-center text-center">
-                    <span class="text-lg font-black ${testCasesCount > 0 ? 'text-slate-900' : 'text-slate-400'} font-mono leading-none">${testCasesCount > 0 ? `${passRatePct}%` : '0%'}</span>
-                    <span class="text-[9px] text-slate-400 font-semibold mt-0.5">${testCasesCount > 0 ? 'Pass Rate' : 'No Tests'}</span>
+                    <span class="text-lg font-black text-slate-900 font-mono leading-none">${testCasesCount > 0 ? `${passRatePct}%` : `${qualityScore}%`}</span>
+                    <span class="text-[9px] text-slate-400 font-semibold mt-0.5">${testCasesCount > 0 ? 'Pass Rate' : 'Quality Health'}</span>
                   </div>
                 </div>
 
                 <!-- Legend Counts -->
                 <div class="space-y-2 text-xs w-full sm:w-44">
-                  <div class="flex items-center justify-between">
-                    <div class="flex items-center gap-2 text-slate-600 font-medium">
-                      <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
-                      <span>Passed</span>
+                  ${testCasesCount > 0 ? `
+                    <div class="flex items-center justify-between">
+                      <div class="flex items-center gap-2 text-slate-600 font-medium">
+                        <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+                        <span>Passed</span>
+                      </div>
+                      <span class="font-bold text-slate-900 font-mono">${passedCount}</span>
                     </div>
-                    <span class="font-bold text-slate-900 font-mono">${passedCount}</span>
-                  </div>
 
-                  <div class="flex items-center justify-between">
-                    <div class="flex items-center gap-2 text-slate-600 font-medium">
-                      <span class="w-2 h-2 rounded-full bg-rose-500"></span>
-                      <span>Failed</span>
+                    <div class="flex items-center justify-between">
+                      <div class="flex items-center gap-2 text-slate-600 font-medium">
+                        <span class="w-2 h-2 rounded-full bg-rose-500"></span>
+                        <span>Failed</span>
+                      </div>
+                      <span class="font-bold text-slate-900 font-mono">${failedCount}</span>
                     </div>
-                    <span class="font-bold text-slate-900 font-mono">${failedCount}</span>
-                  </div>
 
-                  <div class="flex items-center justify-between">
-                    <div class="flex items-center gap-2 text-slate-600 font-medium">
-                      <span class="w-2 h-2 rounded-full bg-amber-500"></span>
-                      <span>Blocked</span>
+                    <div class="flex items-center justify-between">
+                      <div class="flex items-center gap-2 text-slate-600 font-medium">
+                        <span class="w-2 h-2 rounded-full bg-amber-500"></span>
+                        <span>Blocked</span>
+                      </div>
+                      <span class="font-bold text-slate-900 font-mono">${blockedCount}</span>
                     </div>
-                    <span class="font-bold text-slate-900 font-mono">${blockedCount}</span>
-                  </div>
 
-                  <div class="pt-1.5 border-t border-slate-100 flex items-center justify-between font-bold">
-                    <div class="flex items-center gap-2 text-slate-500">
-                      <span class="w-2 h-2 rounded-full bg-slate-400"></span>
-                      <span>Total Test Cases</span>
+                    <div class="pt-1.5 border-t border-slate-100 flex items-center justify-between font-bold">
+                      <div class="flex items-center gap-2 text-slate-500">
+                        <span class="w-2 h-2 rounded-full bg-slate-400"></span>
+                        <span>Total Test Cases</span>
+                      </div>
+                      <span class="text-slate-950 font-mono">${testCasesCount}</span>
                     </div>
-                    <span class="text-slate-950 font-mono">${testCasesCount}</span>
-                  </div>
+                  ` : `
+                    <div class="flex items-center justify-between">
+                      <div class="flex items-center gap-2 text-slate-600 font-medium">
+                        <span class="w-2 h-2 rounded-full bg-amber-500"></span>
+                        <span>In Development</span>
+                      </div>
+                      <span class="font-bold text-slate-900 font-mono">${inProgressCount}</span>
+                    </div>
+
+                    <div class="flex items-center justify-between">
+                      <div class="flex items-center gap-2 text-slate-600 font-medium">
+                        <span class="w-2 h-2 rounded-full bg-purple-500"></span>
+                        <span>Ready for QA</span>
+                      </div>
+                      <span class="font-bold text-slate-900 font-mono">${qaCount}</span>
+                    </div>
+
+                    <div class="flex items-center justify-between">
+                      <div class="flex items-center gap-2 text-slate-600 font-medium">
+                        <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+                        <span>Completed</span>
+                      </div>
+                      <span class="font-bold text-slate-900 font-mono">${completedIssuesCount}</span>
+                    </div>
+
+                    <div class="pt-1.5 border-t border-slate-100 flex items-center justify-between font-bold">
+                      <div class="flex items-center gap-2 text-slate-500">
+                        <span class="w-2 h-2 rounded-full bg-slate-900"></span>
+                        <span>Total Scope</span>
+                      </div>
+                      <span class="text-slate-950 font-mono">${totalIssuesCount} Items (${totalSP} SP)</span>
+                    </div>
+                  `}
                 </div>
               </div>
             </div>
 
-            <!-- Test Execution Trend Bar Chart Card -->
+            <!-- Test & Pipeline Execution Trend Bar Chart Card -->
             <div class="bg-white rounded-2xl border border-slate-300 shadow-2xs p-5 space-y-3.5">
               <div class="flex items-center justify-between pb-3 border-b border-slate-100">
                 <div class="flex items-center gap-2">
                   <div class="p-1.5 rounded-lg bg-indigo-50 text-indigo-600 font-bold">
                     <i data-lucide="bar-chart-2" class="w-4 h-4"></i>
                   </div>
-                  <h3 class="text-xs font-bold text-slate-900">Test Execution Trend</h3>
+                  <h3 class="text-xs font-bold text-slate-900">${testCasesCount > 0 ? 'Test Execution Trend' : 'Activity & Velocity Trend'}</h3>
                 </div>
 
                 <div class="flex items-center gap-3">
                   <!-- Status Dots Legend -->
                   <div class="hidden sm:flex items-center gap-2 text-[10px] font-semibold text-slate-500">
-                    <span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Passed</span>
-                    <span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-rose-500"></span> Failed</span>
-                    <span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span> Blocked</span>
+                    ${testCasesCount > 0 ? `
+                      <span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Passed</span>
+                      <span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-rose-500"></span> Failed</span>
+                      <span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span> Blocked</span>
+                    ` : `
+                      <span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span> In Dev</span>
+                      <span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-purple-500"></span> Ready QA</span>
+                      <span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Done</span>
+                    `}
                   </div>
 
                   <span class="text-[10px] font-bold text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-2 py-0.5">
@@ -727,7 +915,16 @@ const ProjectWorkspaceView = {
                   <i data-lucide="chevron-right" class="w-3.5 h-3.5 text-[#4d7c0f] group-hover:translate-x-0.5 transition"></i>
                 </button>
 
-                <!-- Action 4: View Reports (Light Neutral) -->
+                <!-- Action 4: Project Chat -->
+                <button onclick="if (typeof FloatingProjectChat !== 'undefined') FloatingProjectChat.open('${project.id}')" class="w-full py-2.5 px-3.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs shadow-2xs transition flex items-center justify-between cursor-pointer group">
+                  <div class="flex items-center gap-2">
+                    <i data-lucide="message-square" class="w-4 h-4 text-emerald-400"></i>
+                    <span>Project Chat</span>
+                  </div>
+                  <i data-lucide="chevron-right" class="w-3.5 h-3.5 text-slate-400 group-hover:translate-x-0.5 transition"></i>
+                </button>
+
+                <!-- Action 5: View Reports (Light Neutral) -->
                 <button onclick="ProjectWorkspaceView.switchTab('qa')" class="w-full py-2.5 px-3.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200 font-bold text-xs transition flex items-center justify-between cursor-pointer group">
                   <div class="flex items-center gap-2">
                     <i data-lucide="trending-up" class="w-4 h-4 text-slate-700"></i>
@@ -957,7 +1154,7 @@ const ProjectWorkspaceView = {
           dayKeys.push(d.toISOString().split('T')[0]);
         }
 
-        // 2. Fetch real execution telemetry for active project
+        // 2. Fetch real execution telemetry or work item activity for active project
         const project = store.getActiveProject();
         const passedData = [0, 0, 0, 0, 0, 0, 0];
         const failedData = [0, 0, 0, 0, 0, 0, 0];
@@ -966,26 +1163,43 @@ const ProjectWorkspaceView = {
         if (project) {
           const rawTestCases = store.getTestCases ? (store.getTestCases(project.id) || []) : [];
           const rawTestRuns = store.getTestRuns ? (store.getTestRuns(project.id) || []) : [];
+          const allIssues = store.getIssues ? (store.getIssues(project.id) || []) : [];
 
-          rawTestRuns.forEach(run => {
-            const rDate = (run.createdAt || run.created_at || '').split('T')[0];
-            const idx = dayKeys.indexOf(rDate);
-            if (idx !== -1) {
-              passedData[idx] += (run.passed || 0);
-              failedData[idx] += (run.failed || 0);
-              blockedData[idx] += (run.blocked || 0);
-            }
-          });
+          if (rawTestCases.length > 0 || rawTestRuns.length > 0) {
+            rawTestRuns.forEach(run => {
+              const rDate = (run.createdAt || run.created_at || '').split('T')[0];
+              const idx = dayKeys.indexOf(rDate);
+              if (idx !== -1) {
+                passedData[idx] += (run.passed || 0);
+                failedData[idx] += (run.failed || 0);
+                blockedData[idx] += (run.blocked || 0);
+              }
+            });
 
-          rawTestCases.forEach(tc => {
-            const tcDate = (tc.executedAt || tc.updatedAt || tc.created_at || '').split('T')[0];
-            const idx = dayKeys.indexOf(tcDate);
-            if (idx !== -1) {
-              if (tc.status === 'Passed' || tc.status === 'Pass' || tc.lastExecutionStatus === 'Passed') passedData[idx]++;
-              else if (tc.status === 'Failed' || tc.status === 'Fail' || tc.lastExecutionStatus === 'Failed') failedData[idx]++;
-              else if (tc.status === 'Blocked' || tc.lastExecutionStatus === 'Blocked') blockedData[idx]++;
-            }
-          });
+            rawTestCases.forEach(tc => {
+              const tcDate = (tc.executedAt || tc.updatedAt || tc.created_at || '').split('T')[0];
+              const idx = dayKeys.indexOf(tcDate);
+              if (idx !== -1) {
+                if (tc.status === 'Passed' || tc.status === 'Pass' || tc.lastExecutionStatus === 'Passed') passedData[idx]++;
+                else if (tc.status === 'Failed' || tc.status === 'Fail' || tc.lastExecutionStatus === 'Failed') failedData[idx]++;
+                else if (tc.status === 'Blocked' || tc.lastExecutionStatus === 'Blocked') blockedData[idx]++;
+              }
+            });
+          } else if (allIssues.length > 0) {
+            // Plot real dynamic work item activity
+            allIssues.forEach(iss => {
+              const issDate = (iss.updatedAt || iss.createdAt || iss.created_at || '').split('T')[0];
+              const idx = dayKeys.indexOf(issDate);
+              const targetIdx = idx !== -1 ? idx : (dayKeys.length - 1); // fallback to current day
+              if (iss.status === 'Done' || iss.status === 'Closed' || iss.qaStatus === 'Passed') {
+                passedData[targetIdx]++;
+              } else if (iss.status === 'Ready for QA' || iss.status === 'QA Testing') {
+                blockedData[targetIdx]++;
+              } else {
+                failedData[targetIdx]++; // in dev/open
+              }
+            });
+          }
         }
 
         const maxVal = Math.max(...passedData, ...failedData, ...blockedData, 0);
@@ -1038,11 +1252,11 @@ const ProjectWorkspaceView = {
 
             if (ctx.createLinearGradient) {
               const barGrad = ctx.createLinearGradient(barX, barY, barX, barY + barH);
-              barGrad.addColorStop(0, fVal > 0 ? "#f43f5e" : "#10b981");
-              barGrad.addColorStop(1, fVal > 0 ? "#e11d48" : "#059669");
+              barGrad.addColorStop(0, fVal > 0 ? "#f59e0b" : "#10b981");
+              barGrad.addColorStop(1, fVal > 0 ? "#d97706" : "#059669");
               ctx.fillStyle = barGrad;
             } else {
-              ctx.fillStyle = fVal > 0 ? "#f43f5e" : "#10b981";
+              ctx.fillStyle = fVal > 0 ? "#f59e0b" : "#10b981";
             }
 
             ctx.beginPath();
@@ -1065,13 +1279,17 @@ const ProjectWorkspaceView = {
           ctx.textBaseline = "middle";
           ctx.fillStyle = "#94a3b8";
           ctx.font = "500 11px Inter, sans-serif";
-          ctx.fillText("No test executions recorded in the last 7 days", padLeft + chartW / 2, padTop + chartH / 2);
+          ctx.fillText("No recent activity recorded in the last 7 days", padLeft + chartW / 2, padTop + chartH / 2);
         }
       }
     }
   },
 
   switchTab(tabName) {
+    if (tabName === 'sprints') {
+      window.app.navigate('backlog-sprints');
+      return;
+    }
     const project = store.getActiveProject();
     if (project) {
       store.setActiveProject(project.id);
@@ -1080,9 +1298,9 @@ const ProjectWorkspaceView = {
       const isDev = userRole === 'DEVELOPER';
       const isViewer = userRole === 'VIEWER' || userRole === 'CLIENT_VIEWER';
 
-      if (isDev && !['overview', 'board', 'issues'].includes(tabName)) {
+      if (isDev && !['overview', 'board', 'issues', 'releases'].includes(tabName)) {
         tabName = 'board';
-      } else if (isViewer && !['overview', 'board', 'issues', 'docs'].includes(tabName)) {
+      } else if (isViewer && !['overview', 'board', 'issues', 'docs', 'releases'].includes(tabName)) {
         tabName = 'overview';
       }
       window.location.hash = `project-workspace?projectId=${project.id}&tab=${tabName}`;
@@ -1102,8 +1320,6 @@ const ProjectWorkspaceView = {
         return this.renderBoardTab(project, stats);
       case "issues":
         return this.renderIssuesTab(project, stats);
-      case "sprints":
-        return this.renderSprintsTab(project, stats);
       case "qa":
         return this.renderQATab(project, stats);
       case "team":
@@ -1651,14 +1867,15 @@ const ProjectWorkspaceView = {
     }
 
     // Metadata
+    const cardDueDate = issue.dueDate || issue.due_date;
     let metaHtml = "";
-    if (issue.dueDate || (issue.comments && issue.comments.length > 0)) {
+    if (cardDueDate || (issue.comments && issue.comments.length > 0)) {
       metaHtml = `
         <div class="flex items-center gap-2.5 text-slate-400 text-[10px]">
-          ${issue.dueDate ? `
-            <span class="flex items-center gap-1 text-slate-500 font-medium" title="Due: ${issue.dueDate}">
+          ${cardDueDate ? `
+            <span class="flex items-center gap-1 text-slate-500 font-medium" title="Due: ${cardDueDate}">
               <i data-lucide="calendar" class="w-3 h-3 text-slate-400"></i>
-              <span>${issue.dueDate.split("-").slice(1).join("/")}</span>
+              <span>${cardDueDate.includes("-") ? cardDueDate.split("-").slice(1).join("/") : cardDueDate}</span>
             </span>
           ` : ''}
           ${issue.comments && issue.comments.length > 0 ? `
@@ -1899,57 +2116,79 @@ const ProjectWorkspaceView = {
   // TAB 4: SPRINTS & ROADMAP
   // =========================================================================
   renderSprintsTab(project, stats) {
-    const sprints = store.getSprints(project.id) || [];
+    const sprints = (store.getSprints(project.id) || []).sort((a, b) => new Date(b.createdAt || b.startDate || 0) - new Date(a.createdAt || a.startDate || 0));
     const issues = store.getIssues(project.id) || [];
+    const activeUser = store.getActiveUser ? store.getActiveUser() : null;
+    const isPM = store.canCreateSprint ? store.canCreateSprint(project.id) : true;
 
     return `
-      <div class="space-y-6 text-xs">
+      <div class="space-y-6 text-xs animate-fade-in">
         
         <!-- Sprints Header & Action -->
-        <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div class="bg-white p-5 rounded-2xl border border-slate-300 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <h2 class="text-base font-bold text-slate-900">Sprint Lifecycle & Milestone Roadmap</h2>
-            <p class="text-slate-500 text-xs mt-0.5">Plan release cycles, set sprint burn-down targets, and track delivery progress.</p>
+            <h2 class="text-base font-black text-slate-950">Sprint Lifecycle & Milestone Roadmap</h2>
+            <p class="text-slate-500 text-xs mt-0.5">Plan release cycles, set sprint story point targets, and track agile delivery velocity.</p>
           </div>
 
-          <button onclick="ProjectWorkspaceView.openCreateMilestoneModal()" class="px-4 py-2 bg-[#bef264] hover:bg-[#a3e635] text-slate-950 rounded-xl font-bold shadow-xs shadow-[#bef264]/25 transition flex items-center gap-1.5 self-start sm:self-auto cursor-pointer">
-            <i data-lucide="plus" class="w-4 h-4 text-slate-950"></i> Create New Sprint
-          </button>
+          <div class="flex items-center gap-2.5 flex-wrap">
+            <button onclick="window.app.navigate('backlog-sprints')" class="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl font-bold transition flex items-center gap-1.5 cursor-pointer">
+              <i data-lucide="inbox" class="w-4 h-4 text-slate-700"></i> Open Backlog & Sprints
+            </button>
+            ${isPM ? `
+              <button onclick="BacklogSprintsView.openCreateSprintModal('${project.id}')" class="px-4 py-2 bg-[#bef264] hover:bg-[#a3e635] text-slate-950 rounded-xl font-black shadow-xs shadow-[#bef264]/25 transition flex items-center gap-1.5 cursor-pointer">
+                <i data-lucide="plus" class="w-4 h-4 text-slate-950"></i> Create New Sprint
+              </button>
+            ` : ''}
+          </div>
         </div>
 
         ${sprints.length === 0 ? `
-          <div class="bg-white rounded-2xl border border-slate-200 p-12 text-center text-slate-400 space-y-3">
+          <div class="bg-white rounded-2xl border border-dashed border-slate-300 p-12 text-center text-slate-400 space-y-3">
             <i data-lucide="flag" class="w-12 h-12 text-slate-300 mx-auto"></i>
             <h3 class="text-sm font-bold text-slate-700">No sprints created yet</h3>
             <p class="text-xs text-slate-400 max-w-sm mx-auto">Organize tickets and track velocity by creating your first sprint for ${project.name}.</p>
-            <button onclick="ProjectWorkspaceView.openCreateMilestoneModal()" class="px-4 py-2 bg-[#bef264] hover:bg-[#a3e635] text-slate-950 rounded-xl font-bold text-xs transition inline-flex items-center gap-1.5 cursor-pointer shadow-xs shadow-[#bef264]/25">
-              <i data-lucide="plus" class="w-4 h-4 text-slate-950"></i> Create Sprint
-            </button>
+            ${isPM ? `
+              <button onclick="BacklogSprintsView.openCreateSprintModal('${project.id}')" class="px-4 py-2 bg-[#bef264] hover:bg-[#a3e635] text-slate-950 rounded-xl font-bold text-xs transition inline-flex items-center gap-1.5 cursor-pointer shadow-xs shadow-[#bef264]/25">
+                <i data-lucide="plus" class="w-4 h-4 text-slate-950"></i> Create Sprint
+              </button>
+            ` : ''}
           </div>
         ` : `
           <!-- Sprint Cards Grid -->
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-5">
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
             ${sprints.map((s, idx) => {
               const sIssues = issues.filter(i => (i.sprintId === s.id || i.sprint_id === s.id));
               const sCompleted = sIssues.filter(i => i.status === 'Done' || i.status === 'Closed' || i.qaStatus === 'Passed').length;
+              const sPoints = sIssues.reduce((sum, i) => sum + (Number(i.storyPoints || i.story_points || 0)), 0);
+              const sDonePoints = sIssues.filter(i => i.status === 'Done' || i.status === 'Closed' || i.qaStatus === 'Passed').reduce((sum, i) => sum + (Number(i.storyPoints || i.story_points || 0)), 0);
               const sProgress = sIssues.length > 0 ? Math.round((sCompleted / sIssues.length) * 100) : 0;
               const isActive = s.status === 'Active' || s.status === 'active' || s.status === 'In Progress';
+              const isCompleted = s.status === 'Completed' || s.status === 'completed' || s.status === 'Closed';
 
               return `
-                <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs space-y-4 flex flex-col justify-between relative overflow-hidden ${isActive ? 'ring-2 ring-purple-500/30 border-purple-500' : ''}">
+                <div class="bg-white rounded-2xl p-5 border ${isActive ? 'ring-2 ring-purple-500/40 border-purple-500 shadow-sm' : 'border-slate-300 shadow-2xs'} space-y-4 flex flex-col justify-between relative overflow-hidden">
                   
                   ${isActive ? `
-                    <div class="absolute top-0 right-0 px-3 py-1 bg-purple-600 text-white text-[10px] font-bold uppercase rounded-bl-xl">
+                    <div class="absolute top-0 right-0 px-3 py-1 bg-purple-600 text-white text-[10px] font-bold uppercase rounded-bl-xl shadow-xs">
                       Active Sprint
                     </div>
-                  ` : ''}
+                  ` : isCompleted ? `
+                    <div class="absolute top-0 right-0 px-3 py-1 bg-emerald-600 text-white text-[10px] font-bold uppercase rounded-bl-xl shadow-xs">
+                      Completed
+                    </div>
+                  ` : `
+                    <div class="absolute top-0 right-0 px-3 py-1 bg-slate-200 text-slate-700 text-[10px] font-bold uppercase rounded-bl-xl">
+                      Planned
+                    </div>
+                  `}
 
                   <div class="space-y-3">
-                    <div class="flex items-center gap-2">
-                      <span class="w-6 h-6 rounded-lg ${s.status === 'Completed' ? 'bg-emerald-100 text-emerald-700' : isActive ? 'bg-purple-100 text-purple-700' : 'bg-slate-100 text-slate-600'} flex items-center justify-center font-bold font-mono text-xs">
+                    <div class="flex items-center gap-2 pr-20">
+                      <span class="w-6 h-6 rounded-lg ${isCompleted ? 'bg-emerald-100 text-emerald-700' : isActive ? 'bg-purple-100 text-purple-700' : 'bg-slate-100 text-slate-600'} flex items-center justify-center font-bold font-mono text-xs">
                         ${idx + 1}
                       </span>
-                      <h3 class="font-bold text-slate-900 text-sm truncate">${s.name || s.title}</h3>
+                      <h3 class="font-black text-slate-900 text-sm truncate">${s.name || s.title}</h3>
                     </div>
 
                     <p class="text-slate-500 text-xs leading-relaxed line-clamp-2">${s.goal || 'Sprint deliverables and verification scope.'}</p>
@@ -1962,11 +2201,11 @@ const ProjectWorkspaceView = {
                       </div>
                       <div class="flex items-center justify-between text-slate-500">
                         <span>Work Scope:</span>
-                        <span class="font-bold text-slate-900 font-mono">${sCompleted}/${sIssues.length} Completed</span>
+                        <span class="font-bold text-slate-900 font-mono">${sCompleted}/${sIssues.length} Delivered (${sPoints} SP)</span>
                       </div>
                       <div class="flex items-center justify-between text-slate-500">
                         <span>Status:</span>
-                        <span class="font-bold ${s.status === 'Completed' ? 'text-emerald-600' : 'text-purple-600'}">${s.status}</span>
+                        <span class="font-bold ${isCompleted ? 'text-emerald-600' : isActive ? 'text-purple-600' : 'text-slate-600'}">${s.status}</span>
                       </div>
                     </div>
 
@@ -1974,17 +2213,36 @@ const ProjectWorkspaceView = {
                     <div class="space-y-1">
                       <div class="flex items-center justify-between text-[11px] font-bold">
                         <span class="text-slate-400">Burn-down Progress</span>
-                        <span class="font-mono text-slate-900">${sProgress}%</span>
+                        <span class="font-mono text-slate-900">${sProgress}% (${sDonePoints}/${sPoints} SP)</span>
                       </div>
                       <div class="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
-                        <div class="h-full ${s.status === 'Completed' ? 'bg-emerald-500' : 'bg-gradient-to-r from-purple-600 to-indigo-600'} rounded-full transition-all" style="width: ${sProgress}%"></div>
+                        <div class="h-full ${isCompleted ? 'bg-emerald-500' : isActive ? 'bg-gradient-to-r from-purple-600 to-indigo-600' : 'bg-slate-400'} rounded-full transition-all" style="width: ${sProgress}%"></div>
                       </div>
                     </div>
                   </div>
 
-                  <div class="pt-3 border-t border-slate-100 flex items-center justify-between">
-                    <span class="text-[10px] text-slate-400 font-mono">${s.id}</span>
-                    <button onclick="ProjectWorkspaceView.setFilter('sprint', '${s.id}'); ProjectWorkspaceView.switchTab('board')" class="text-purple-600 hover:underline font-bold text-xs cursor-pointer">
+                  <div class="pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
+                    <div class="flex items-center gap-1.5">
+                      ${isActive && isPM ? `
+                        <button onclick="BacklogSprintsView.openCompleteSprintModal('${s.id}')" class="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-[11px] transition shadow-2xs cursor-pointer">
+                          Complete
+                        </button>
+                      ` : !isActive && !isCompleted && isPM ? `
+                        <button onclick="BacklogSprintsView.openStartSprintModal('${s.id}')" class="px-2.5 py-1 bg-[#bef264] hover:bg-[#a3e635] text-slate-950 rounded-lg font-black text-[11px] shadow-xs shadow-[#bef264]/25 transition cursor-pointer">
+                          Start Sprint
+                        </button>
+                      ` : ''}
+                      ${isPM && !isCompleted ? `
+                        <button onclick="BacklogSprintsView.openEditSprintModal('${s.id}')" class="p-1 hover:bg-slate-100 rounded-lg text-slate-500 transition cursor-pointer" title="Edit">
+                          <i data-lucide="edit-3" class="w-3.5 h-3.5"></i>
+                        </button>
+                        <button onclick="BacklogSprintsView.handleDeleteSprint('${s.id}')" class="p-1 hover:bg-rose-50 text-slate-400 hover:text-rose-600 rounded-lg transition cursor-pointer" title="Delete">
+                          <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                        </button>
+                      ` : ''}
+                    </div>
+
+                    <button onclick="ProjectWorkspaceView.setFilter('sprint', '${s.id}'); ProjectWorkspaceView.switchTab('board')" class="text-purple-600 hover:underline font-bold text-xs cursor-pointer ml-auto">
                       View Board Scope →
                     </button>
                   </div>
@@ -4263,8 +4521,18 @@ const ProjectWorkspaceView = {
           const issueId = e.dataTransfer.getData("text/plain");
           const newStatus = zone.dataset.status;
           if (issueId && newStatus) {
-            store.updateIssueStatus(issueId, newStatus);
-            ProjectWorkspaceView.render(document.getElementById("mainContent"));
+            const currentIssue = typeof store.getIssueById === 'function' ? store.getIssueById(issueId) : (typeof store.getTicketById === 'function' ? store.getTicketById(issueId) : null);
+            if (currentIssue && currentIssue.status === newStatus) return;
+
+            if (window.app && typeof window.app.openWorkflowTransitionModal === 'function' && ['Ready for QA', 'Done', 'Reopened', 'Blocked', 'QA Passed', 'QA Testing'].includes(newStatus)) {
+              window.app.openWorkflowTransitionModal(issueId, newStatus, true);
+            } else {
+              store.updateIssueStatus(issueId, newStatus);
+              if (window.app && typeof window.app.toast === 'function') {
+                window.app.toast("Workflow Updated", `Issue status updated to "${newStatus}".`, "success");
+              }
+              ProjectWorkspaceView.render(document.getElementById("mainContent"));
+            }
           }
         });
       });

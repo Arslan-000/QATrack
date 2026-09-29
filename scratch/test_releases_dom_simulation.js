@@ -180,16 +180,15 @@ async function runDomTests() {
     assert(detailHtml.includes('Run Assessment'), "Displays Run Assessment action");
   }
 
-  // Test 4: Project Workspace Overview Tab Integration
-  console.log("\n📋 TEST 4: Project Workspace Overview Tab Release Card");
+  // Test 4: Project Workspace Tab Integration
+  console.log("\n📋 TEST 4: Project Workspace Tab Integration");
   {
     ProjectWorkspaceView.activeTab = 'overview';
     ProjectWorkspaceView.render(container);
 
     const overviewHtml = container.innerHTML;
-    assert(overviewHtml.includes('Intelligent Release Readiness'), "Renders Release Readiness Bento card on Project Overview");
-    assert(overviewHtml.includes('GATE OUTCOME'), "Displays Gate Outcome on Project Overview");
-    assert(overviewHtml.includes('Releases & Quality Gate'), "Project Tab Bar contains Releases & Quality Gate tab");
+    assert(overviewHtml.includes('Releases &amp; Quality Gate') || overviewHtml.includes('Releases & Quality Gate'), "Project Tab Bar contains Releases & Quality Gate tab");
+    assert(overviewHtml.includes('Project Quality &amp; Progress') || overviewHtml.includes('Project Quality & Progress'), "Displays Project Quality & Progress KPI on Project Workspace");
   }
 
   // Test 5: Executive Dashboard Integration

@@ -57,7 +57,9 @@ const AIQAAssistantView = {
       this.activeWorkspaceId = project.workspace_id || project.workspaceId || store.data.activeWorkspaceId;
     }
 
-    const today = new Date().toISOString().split("T")[0];
+    const d = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    const today = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
     this.selectedDate = today;
     this.startDate = today;
     this.endDate = today;

@@ -122,6 +122,14 @@ const SettingsView = {
           </button>
 
           <button
+            onclick="SettingsView.setTab('notifications')"
+            class="px-3.5 py-2 rounded-xl font-bold text-xs transition cursor-pointer flex items-center gap-2 whitespace-nowrap ${this.activeTab === 'notifications' ? 'bg-white text-slate-950 shadow-xs' : 'text-slate-600 hover:text-slate-900'}"
+          >
+            <i data-lucide="bell-ring" class="w-3.5 h-3.5 ${this.activeTab === 'notifications' ? 'text-amber-500' : 'text-slate-400'}"></i>
+            <span>Notifications & Emails</span>
+          </button>
+
+          <button
             onclick="SettingsView.setTab('danger')"
             class="px-3.5 py-2 rounded-xl font-bold text-xs transition cursor-pointer flex items-center gap-2 whitespace-nowrap ${this.activeTab === 'danger' ? 'bg-white text-rose-700 shadow-xs' : 'text-slate-600 hover:text-rose-600'}"
           >
@@ -697,6 +705,268 @@ const SettingsView = {
           </div>
         ` : ''}
 
+        <!-- =========================================================================
+             TAB 7: NOTIFICATIONS & AUTOMATED EMAIL ALERTS
+             ========================================================================= -->
+        ${this.activeTab === 'notifications' ? (() => {
+          const prefs = store.getNotificationPreferences ? store.getNotificationPreferences() : {};
+          const emailLogs = store.getEmailLogs ? store.getEmailLogs(this.emailLogsSearchQuery || null) : [];
+          return `
+            <div class="space-y-6 animate-fade-in">
+              
+              <!-- 1. Email Preferences Header & Toggles -->
+              <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm space-y-6">
+                <div class="flex items-center justify-between pb-4 border-b border-slate-100">
+                  <div>
+                    <h2 class="text-sm font-bold text-slate-900 uppercase flex items-center gap-2">
+                      <i data-lucide="mail" class="w-4 h-4 text-purple-600"></i>
+                      <span>Automated Email Notification Preferences</span>
+                    </h2>
+                    <p class="text-[11px] text-slate-500 mt-0.5">Control which platform events trigger real-time responsive HTML email notifications.</p>
+                  </div>
+                  <span class="px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                    Live Dispatch Active
+                  </span>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  
+                  <!-- Item 1: Chat Mentions & DMs -->
+                  <div class="p-4 rounded-xl bg-slate-50 border border-slate-200 flex items-start justify-between gap-3">
+                    <div class="space-y-1">
+                      <div class="flex items-center gap-2">
+                        <span class="p-1 rounded-lg bg-emerald-100 text-emerald-800"><i data-lucide="message-square" class="w-3.5 h-3.5"></i></span>
+                        <h4 class="font-extrabold text-slate-900 text-xs">Chat Mentions & Direct Messages</h4>
+                      </div>
+                      <p class="text-[11px] text-slate-500">Send email notification when someone tags you (@mention) or sends you a direct message.</p>
+                    </div>
+                    <label class="relative inline-flex items-center cursor-pointer shrink-0 mt-1">
+                      <input type="checkbox" ${prefs.emailOnChatMention !== false ? 'checked' : ''} onchange="SettingsView.handleTogglePref('emailOnChatMention', this.checked)" class="sr-only peer">
+                      <div class="w-9 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-slate-950"></div>
+                    </label>
+                  </div>
+
+                  <!-- Item 2: Project & Space Assignments -->
+                  <div class="p-4 rounded-xl bg-slate-50 border border-slate-200 flex items-start justify-between gap-3">
+                    <div class="space-y-1">
+                      <div class="flex items-center gap-2">
+                        <span class="p-1 rounded-lg bg-blue-100 text-blue-800"><i data-lucide="folder-plus" class="w-3.5 h-3.5"></i></span>
+                        <h4 class="font-extrabold text-slate-900 text-xs">Project & Space Assignments</h4>
+                      </div>
+                      <p class="text-[11px] text-slate-500">Send email when you are assigned or invited to a project or workspace.</p>
+                    </div>
+                    <label class="relative inline-flex items-center cursor-pointer shrink-0 mt-1">
+                      <input type="checkbox" ${prefs.emailOnProjectAssignment !== false ? 'checked' : ''} onchange="SettingsView.handleTogglePref('emailOnProjectAssignment', this.checked)" class="sr-only peer">
+                      <div class="w-9 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-slate-950"></div>
+                    </label>
+                  </div>
+
+                  <!-- Item 3: Task & Defect Assignments -->
+                  <div class="p-4 rounded-xl bg-slate-50 border border-slate-200 flex items-start justify-between gap-3">
+                    <div class="space-y-1">
+                      <div class="flex items-center gap-2">
+                        <span class="p-1 rounded-lg bg-amber-100 text-amber-800"><i data-lucide="check-square" class="w-3.5 h-3.5"></i></span>
+                        <h4 class="font-extrabold text-slate-900 text-xs">Task & Defect Assignments</h4>
+                      </div>
+                      <p class="text-[11px] text-slate-500">Send email when a new ticket, user story, or defect is assigned to you.</p>
+                    </div>
+                    <label class="relative inline-flex items-center cursor-pointer shrink-0 mt-1">
+                      <input type="checkbox" ${prefs.emailOnIssueAssignment !== false ? 'checked' : ''} onchange="SettingsView.handleTogglePref('emailOnIssueAssignment', this.checked)" class="sr-only peer">
+                      <div class="w-9 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-slate-950"></div>
+                    </label>
+                  </div>
+
+                  <!-- Item 4: QA Verification Handovers -->
+                  <div class="p-4 rounded-xl bg-slate-50 border border-slate-200 flex items-start justify-between gap-3">
+                    <div class="space-y-1">
+                      <div class="flex items-center gap-2">
+                        <span class="p-1 rounded-lg bg-purple-100 text-purple-800"><i data-lucide="clipboard-check" class="w-3.5 h-3.5"></i></span>
+                        <h4 class="font-extrabold text-slate-900 text-xs">QA Verification Handovers</h4>
+                      </div>
+                      <p class="text-[11px] text-slate-500">Send email to QA Lead & Engineers when developers move tickets to "Ready for QA".</p>
+                    </div>
+                    <label class="relative inline-flex items-center cursor-pointer shrink-0 mt-1">
+                      <input type="checkbox" ${prefs.emailOnQAHandoff !== false ? 'checked' : ''} onchange="SettingsView.handleTogglePref('emailOnQAHandoff', this.checked)" class="sr-only peer">
+                      <div class="w-9 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-slate-950"></div>
+                    </label>
+                  </div>
+
+                  <!-- Item 5: Blocker & Critical Bugs -->
+                  <div class="p-4 rounded-xl bg-slate-50 border border-slate-200 flex items-start justify-between gap-3">
+                    <div class="space-y-1">
+                      <div class="flex items-center gap-2">
+                        <span class="p-1 rounded-lg bg-rose-100 text-rose-800"><i data-lucide="alert-octagon" class="w-3.5 h-3.5"></i></span>
+                        <h4 class="font-extrabold text-slate-900 text-xs">Critical Blocker Escalations</h4>
+                      </div>
+                      <p class="text-[11px] text-slate-500">Broadcast immediate email alert to all project members when a Critical/Blocker bug is filed.</p>
+                    </div>
+                    <label class="relative inline-flex items-center cursor-pointer shrink-0 mt-1">
+                      <input type="checkbox" ${prefs.emailOnCriticalBug !== false ? 'checked' : ''} onchange="SettingsView.handleTogglePref('emailOnCriticalBug', this.checked)" class="sr-only peer">
+                      <div class="w-9 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-slate-950"></div>
+                    </label>
+                  </div>
+
+                  <!-- Item 6: Sprint & Release Milestones -->
+                  <div class="p-4 rounded-xl bg-slate-50 border border-slate-200 flex items-start justify-between gap-3">
+                    <div class="space-y-1">
+                      <div class="flex items-center gap-2">
+                        <span class="p-1 rounded-lg bg-violet-100 text-violet-800"><i data-lucide="calendar-range" class="w-3.5 h-3.5"></i></span>
+                        <h4 class="font-extrabold text-slate-900 text-xs">Sprint & Release Milestones</h4>
+                      </div>
+                      <p class="text-[11px] text-slate-500">Send email updates when sprints are kicked off or completed with sprint reports.</p>
+                    </div>
+                    <label class="relative inline-flex items-center cursor-pointer shrink-0 mt-1">
+                      <input type="checkbox" ${prefs.emailOnSprintLifecycle !== false ? 'checked' : ''} onchange="SettingsView.handleTogglePref('emailOnSprintLifecycle', this.checked)" class="sr-only peer">
+                      <div class="w-9 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-slate-950"></div>
+                    </label>
+                  </div>
+
+                </div>
+              </div>
+
+              <!-- 2. Interactive "Send Test Email" Dispatcher -->
+              <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm space-y-4">
+                <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+                  <div class="flex items-center gap-2">
+                    <div class="p-1.5 rounded-lg bg-slate-950 text-[#bef264]">
+                      <i data-lucide="send" class="w-4 h-4"></i>
+                    </div>
+                    <div>
+                      <h3 class="text-sm font-bold text-slate-900">Interactive Email Notification Tester</h3>
+                      <p class="text-[11px] text-slate-500">Test any notification email template with live delivery to your inbox.</p>
+                    </div>
+                  </div>
+                </div>
+
+                <form onsubmit="SettingsView.handleSendTestEmail(event)" class="grid grid-cols-1 sm:grid-cols-12 gap-3 pt-1">
+                  <div class="sm:col-span-4">
+                    <label class="block text-[11px] font-bold text-slate-700 mb-1">Scenario Template</label>
+                    <select id="testEmailScenario" class="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-[#bef264]/50 focus:border-[#84cc16] focus:outline-none bg-white">
+                      <option value="project_assignment">🎯 Project Assignment Notification</option>
+                      <option value="issue_assignment">⚡ Task / Defect Assigned</option>
+                      <option value="qa_handoff">🔍 Ready for QA Handover</option>
+                      <option value="critical_defect">🚨 Critical Blocker Bug Alert</option>
+                      <option value="chat_mention">💬 Chat @Mention Alert</option>
+                      <option value="sprint_milestone">🚀 Sprint Milestone Kickoff</option>
+                    </select>
+                  </div>
+
+                  <div class="sm:col-span-5">
+                    <label class="block text-[11px] font-bold text-slate-700 mb-1">Recipient Email Address</label>
+                    <input
+                      type="email"
+                      id="testEmailRecipient"
+                      placeholder="e.g. your-email@company.com"
+                      value="${activeUser.email || 'user@pulsewave.io'}"
+                      required
+                      class="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-[#bef264]/50 focus:border-[#84cc16] focus:outline-none"
+                    />
+                  </div>
+
+                  <div class="sm:col-span-3 flex items-end">
+                    <button
+                      type="submit"
+                      class="w-full py-2 px-4 bg-slate-950 hover:bg-slate-800 text-[#bef264] font-black text-xs rounded-xl shadow-xs transition flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      <i data-lucide="mail-check" class="w-4 h-4"></i>
+                      <span>Send Test Email</span>
+                    </button>
+                  </div>
+                </form>
+              </div>
+
+              <!-- 3. Outbound Email Logs & Audit Trail -->
+              <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm space-y-4">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+                  <div class="flex items-center gap-2">
+                    <div class="p-1.5 rounded-lg bg-purple-50 text-purple-700 border border-purple-200">
+                      <i data-lucide="history" class="w-4 h-4"></i>
+                    </div>
+                    <div>
+                      <h3 class="text-sm font-bold text-slate-900">Outbound Email Audit Trail</h3>
+                      <p class="text-[11px] text-slate-500">Record of all notification emails dispatched across your workspace.</p>
+                    </div>
+                  </div>
+
+                  <div class="flex items-center gap-2">
+                    <input
+                      type="text"
+                      placeholder="Search email logs..."
+                      value="${this.emailLogsSearchQuery || ''}"
+                      oninput="SettingsView.emailLogsSearchQuery = this.value; SettingsView.render(document.getElementById('mainContent'))"
+                      class="px-3 py-1.5 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-[#bef264]/50 w-44"
+                    />
+                    <button
+                      onclick="SettingsView.handleClearEmailLogs()"
+                      class="px-2.5 py-1.5 bg-slate-100 hover:bg-rose-50 hover:text-rose-700 text-slate-600 font-bold rounded-xl text-[11px] transition cursor-pointer flex items-center gap-1 shrink-0"
+                    >
+                      <i data-lucide="trash" class="w-3 h-3"></i>
+                      <span>Clear Logs</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div class="overflow-x-auto">
+                  <table class="w-full text-left border-collapse">
+                    <thead>
+                      <tr class="border-b border-slate-200 text-slate-400 uppercase text-[10px] tracking-wider font-extrabold bg-slate-50/50">
+                        <th class="py-2.5 px-3">Subject & Title</th>
+                        <th class="py-2.5 px-3">Recipient</th>
+                        <th class="py-2.5 px-3">Category</th>
+                        <th class="py-2.5 px-3">Status</th>
+                        <th class="py-2.5 px-3">Sent At</th>
+                        <th class="py-2.5 px-3 text-right">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100 text-xs">
+                      ${emailLogs.length === 0 ? `
+                        <tr>
+                          <td colspan="6" class="py-8 text-center text-slate-400">
+                            <i data-lucide="mail-open" class="w-6 h-6 mx-auto mb-1 text-slate-300"></i>
+                            <p class="font-bold text-slate-600">No Outbound Emails Logged</p>
+                            <p class="text-[10px] text-slate-400">Emails dispatched via assignments, QA handovers, and mentions will appear here.</p>
+                          </td>
+                        </tr>
+                      ` : emailLogs.map(log => `
+                        <tr class="hover:bg-slate-50/80 transition group">
+                          <td class="py-2.5 px-3 font-bold text-slate-900 max-w-xs truncate">
+                            <div class="truncate">${log.subject}</div>
+                            <div class="text-[10px] text-slate-400 font-normal truncate">${log.projectName || 'PulseWave'}</div>
+                          </td>
+                          <td class="py-2.5 px-3 font-mono text-purple-900 text-[11px]">${log.recipient}</td>
+                          <td class="py-2.5 px-3">
+                            <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700 uppercase">
+                              ${log.type}
+                            </span>
+                          </td>
+                          <td class="py-2.5 px-3">
+                            <span class="px-2 py-0.5 rounded-full text-[10px] font-black bg-purple-100 text-purple-800 uppercase">
+                              ${log.status || 'DELIVERED'}
+                            </span>
+                          </td>
+                          <td class="py-2.5 px-3 text-slate-400 text-[11px]">
+                            ${new Date(log.sentAt).toLocaleString()}
+                          </td>
+                          <td class="py-2.5 px-3 text-right">
+                            <button
+                              onclick="window.app.openEmailPreviewModal('${log.id}')"
+                              class="px-2.5 py-1 bg-white hover:bg-purple-50 text-purple-700 border border-purple-200 rounded-lg text-[11px] font-bold shadow-2xs transition cursor-pointer flex items-center gap-1 inline-flex"
+                            >
+                              <i data-lucide="eye" class="w-3 h-3"></i>
+                              <span>Inspect</span>
+                            </button>
+                          </td>
+                        </tr>
+                      `).join('')}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+            </div>
+          `;
+        })() : ''}
+
       </div>
 
       <!-- Modal Container -->
@@ -1122,6 +1392,118 @@ const SettingsView = {
       window.app.toast("Account Deleted", "Your account and data have been removed.", "info");
       this.closeModal();
       window.app.navigate("home");
+    }
+  },
+
+  // Notification Preferences & Test Email Handlers
+  handleTogglePref(prefKey, value) {
+    if (store.updateNotificationPreferences) {
+      store.updateNotificationPreferences(null, { [prefKey]: value });
+      window.app.toast("Preferences Updated", `Email notification setting updated.`, "success");
+    }
+  },
+
+  async handleSendTestEmail(e) {
+    e.preventDefault();
+    const scenario = document.getElementById("testEmailScenario")?.value || "project_assignment";
+    const recipient = document.getElementById("testEmailRecipient")?.value.trim();
+
+    if (!recipient || !recipient.includes("@")) {
+      window.app.toast("Validation Error", "Please enter a valid recipient email address.", "error");
+      return;
+    }
+
+    const scenarios = {
+      project_assignment: {
+        type: 'project_assignment',
+        subject: '[PulseWave] 🎯 Assigned to Project: Core Architecture V2',
+        title: 'Project Assignment: Core Architecture V2',
+        message: 'You have been added to project "Core Architecture V2" as QA Lead. Access the workspace below to review committed scope and test plans.',
+        actionUrl: 'project-workspace',
+        actionText: 'Open Project Workspace'
+      },
+      issue_assignment: {
+        type: 'issue_assignment',
+        subject: '[PulseWave] ⚡ Task Assigned: [PROJ-104] Payment Webhook Retry Mechanism',
+        title: 'Task Assigned: [PROJ-104] Payment Webhook Retry Mechanism',
+        message: 'A new high-priority defect has been assigned to you for resolution. Target sprint: Sprint 24.',
+        issueKey: 'PROJ-104',
+        issueTitle: 'Payment Webhook Retry Mechanism',
+        issuePriority: 'High',
+        actionUrl: 'all-issues',
+        actionText: 'View Issue Details'
+      },
+      qa_handoff: {
+        type: 'qa_handoff',
+        subject: '[PulseWave] 🔍 Ready for QA: [PROJ-88] OAuth2 Google SSO Integration',
+        title: 'Ready for QA: [PROJ-88] OAuth2 Google SSO Integration',
+        message: 'Developer Alex has completed development and marked the ticket Ready for QA on Staging (Build #v2.4.2). Verification checklist attached.',
+        issueKey: 'PROJ-88',
+        issueTitle: 'OAuth2 Google SSO Integration',
+        issuePriority: 'Medium',
+        actionUrl: 'all-issues',
+        actionText: 'Execute QA Sign-off'
+      },
+      critical_defect: {
+        type: 'critical_defect',
+        subject: '[PulseWave] 🚨 Blocker Defect Logged: [PROJ-99] Checkout Database Deadlock',
+        title: 'Critical Blocker Defect: [PROJ-99] Checkout Database Deadlock',
+        message: 'High-severity blocker defect filed on Production replica. Immediate dev triage requested.',
+        issueKey: 'PROJ-99',
+        issueTitle: 'Checkout Database Deadlock',
+        issuePriority: 'Critical',
+        actionUrl: 'all-issues',
+        actionText: 'Inspect Blocker Defect'
+      },
+      chat_mention: {
+        type: 'chat_mention',
+        subject: '[PulseWave] 💬 Sarah Jenkins mentioned you in #release-engineering',
+        title: 'Mentioned in #release-engineering',
+        message: 'Sarah Jenkins: "@Arslan could you verify the regression test suite results before tomorrow morning deployment?"',
+        actionUrl: 'project-workspace',
+        actionText: 'Reply in Chat'
+      },
+      sprint_milestone: {
+        type: 'sprint_milestone',
+        subject: '[PulseWave] 🚀 Sprint 24 Kickoff: Notification Engine & Quality Gates',
+        title: 'Sprint Started: Sprint 24 - Notification Engine',
+        message: 'Sprint 24 has started with 42 committed Story Points across 8 user stories. Review active sprint board for your deliverables.',
+        actionUrl: 'project-workspace',
+        actionText: 'Open Sprint Board'
+      }
+    };
+
+    const config = scenarios[scenario] || scenarios.project_assignment;
+
+    const res = await store.dispatchEmailNotification({
+      recipient,
+      recipientName: recipient.split('@')[0],
+      subject: config.subject,
+      type: config.type,
+      title: config.title,
+      message: config.message,
+      issueKey: config.issueKey || null,
+      issueTitle: config.issueTitle || null,
+      issuePriority: config.issuePriority || null,
+      actionUrl: config.actionUrl,
+      actionText: config.actionText
+    });
+
+    if (res && res.success) {
+      window.app.toast("Test Email Sent", `Dispatched ${config.title} to ${recipient}. Check the audit log below.`, "success");
+      this.render(document.getElementById("mainContent"));
+    } else {
+      window.app.toast("Email Dispatch Error", res?.reason || "Could not dispatch test email.", "error");
+    }
+  },
+
+  handleClearEmailLogs() {
+    if (confirm("Are you sure you want to clear all outbound email records?")) {
+      if (store.clearEmailLogs) {
+        store.clearEmailLogs();
+        window.app.toast("Logs Cleared", "Outbound email audit log has been cleared.", "info");
+        this.render(document.getElementById("mainContent"));
+      }
     }
   },
 

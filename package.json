@@ -4,6 +4,7 @@
   "description": "All-in-One Software Project & Bug Tracking Platform (V1 UI)",
   "main": "index.html",
   "scripts": {
+    "start": "npx -y serve .",
     "dev": "npx -y serve .",
     "serve": "npx -y serve ."
   },

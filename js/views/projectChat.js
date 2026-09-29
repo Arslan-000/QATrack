@@ -102,84 +102,22 @@ const FloatingProjectChat = {
     const conv = store.getProjectChatConversation(activeProject.id);
     this.conversationId = conv ? conv.id : null;
 
-    const unreadCount = store.getUnreadChatCount(activeProject.id, this.conversationId, activeUser.id);
-    const isBoardTab = (typeof ProjectWorkspaceView !== 'undefined' && ProjectWorkspaceView.activeTab === 'board');
-
-    if (isBoardTab) {
-      // ON KANBAN BOARD PAGE: Show [ AI QA Assistant ] (with chat bubble + sparkles) on left, and [ + Add Card ] (lime green) on right
-      container.innerHTML = `
-        <div class="pointer-events-auto flex flex-col items-end gap-3">
-          <!-- Floating Chat Popup Window (when toggled open) -->
-          <div id="floatingChatPopupMount" class="${this.isOpen ? 'block' : 'hidden'}"></div>
-
-          <!-- Bottom Action Buttons: AI QA Assistant on left, Add Card on right -->
-          <div class="flex items-center gap-2.5">
-            <!-- AI QA Assistant Pill Button -->
-            <button
-              id="boardAIAssistantTrigger"
-              onclick="window.app.openAIQAAssistant('${activeProject.id}')"
-              class="group relative flex items-center gap-2 px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-full shadow-2xl border border-slate-700/80 transition-all duration-200 transform hover:scale-105 active:scale-95 cursor-pointer select-none"
-              title="AI QA Assistant - Summaries, Test Plans & Auto-Generation"
-            >
-              <div class="relative flex items-center justify-center">
-                <i data-lucide="message-square" class="w-4 h-4 text-emerald-400 group-hover:text-[#bef264] transition"></i>
-                <span class="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-              </div>
-              <span class="text-xs">✨</span>
-              <span class="font-bold text-xs tracking-tight text-white">AI QA Assistant</span>
-            </button>
-
-            <!-- Add Card Pill Button (Lime Green) -->
-            <button
-              id="boardAddCardTrigger"
-              onclick="window.app.openAddCardModal('${activeProject.id}')"
-              class="flex items-center gap-1.5 px-4 py-2.5 bg-[#bef264] hover:bg-[#a3e635] text-slate-950 rounded-full shadow-2xl transition-all duration-200 transform hover:scale-105 active:scale-95 cursor-pointer select-none font-bold text-xs shadow-[#bef264]/20"
-              title="Add Card to Kanban Board"
-            >
-              <i data-lucide="plus" class="w-4 h-4 text-slate-950 font-bold"></i>
-              <span>Add Card</span>
-            </button>
-          </div>
-        </div>
-      `;
-    } else {
-      // ON OTHER TABS (Overview, Issues, Releases, Sprints, QA, Team, Settings): Show Project Chat button in bottom right
-      container.innerHTML = `
-        <div class="pointer-events-auto flex flex-col items-end gap-3">
-          <!-- Floating Chat Popup Window -->
-          <div id="floatingChatPopupMount" class="${this.isOpen ? 'block' : 'hidden'}"></div>
-
-          <!-- Floating Chat Trigger Button -->
-          <button
-            id="floatingProjectChatTrigger"
-            onclick="FloatingProjectChat.toggle()"
-            class="group relative flex items-center gap-2.5 px-4 py-3 bg-slate-900 hover:bg-slate-800 text-white rounded-full shadow-2xl border border-slate-700/80 transition-all duration-200 transform hover:scale-105 active:scale-95 cursor-pointer select-none"
-            title="Toggle Project Chat (${activeProject.name})"
-          >
-            <!-- Status & Icon -->
-            <div class="relative flex items-center justify-center">
-              <i data-lucide="message-square" class="w-5 h-5 text-emerald-400 group-hover:text-[#bef264] transition"></i>
-              <span class="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-400 border border-slate-900 animate-pulse"></span>
-            </div>
-
-            <span class="font-bold text-xs tracking-wide pr-0.5">Project Chat</span>
-
-            <!-- Unread Badge -->
-            ${unreadCount > 0 ? `
-              <span class="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-400 text-slate-950 font-mono shadow-xs animate-bounce">
-                ${unreadCount}
-              </span>
-            ` : ''}
-          </button>
-        </div>
-      `;
+    // When closed, container is empty — no floating button permanently blocking the bottom-right screen
+    if (!this.isOpen) {
+      container.innerHTML = "";
+      return;
     }
+
+    // When open, render the floating chat popup window in the bottom right
+    container.innerHTML = `
+      <div class="pointer-events-auto flex flex-col items-end gap-3">
+        <!-- Floating Chat Popup Window -->
+        <div id="floatingChatPopupMount" class="block"></div>
+      </div>
+    `;
 
     if (window.lucide) window.lucide.createIcons();
-
-    if (this.isOpen) {
-      this.renderPopup();
-    }
+    this.renderPopup();
   },
 
   /**

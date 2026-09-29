@@ -158,12 +158,14 @@
     <main id="mainContent" class="flex-1 overflow-y-auto p-4 sm:p-6 bg-slate-50/70"></main>
   </div>
 
-  <!-- Global Modals & Drawers Container -->
-  <div id="globalModalContainer"></div>
-  <div id="globalDrawerContainer"></div>
+  <!-- Global Drawers Container (Slide-overs at z-40) -->
+  <div id="globalDrawerContainer" class="relative z-40"></div>
 
-  <!-- Toast Notification Alerts Container -->
-  <div id="toastContainer" class="fixed bottom-5 right-5 z-50 space-y-3 pointer-events-none max-w-sm w-full px-4 sm:px-0"></div>
+  <!-- Global Modals Container (Dialogs, Verification Gates & Overlays at z-70 above drawers) -->
+  <div id="globalModalContainer" class="relative z-70"></div>
+
+  <!-- Toast Notification Alerts Container (High Priority at z-100) -->
+  <div id="toastContainer" class="fixed bottom-5 right-5 z-100 space-y-3 pointer-events-none max-w-sm w-full px-4 sm:px-0"></div>
 
   <!-- Supabase JS CDN & Client Configuration -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>

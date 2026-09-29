@@ -112,8 +112,10 @@ store.data.issues = [
 
 // 3. Setup Test Cases
 store.data.testCases = [
-  { id: "tc_1", projectId: prj.id, title: "Order Posting flow", status: "Passed" },
-  { id: "tc_2", projectId: prj.id, title: "Inventory sync flow", status: "Passed" }
+  { id: "tc_1", projectId: prj.id, module: "Order Posting", title: "Order Posting flow", status: "Passed" },
+  { id: "tc_2", projectId: prj.id, module: "Invoice Processing", title: "Invoice processing flow", status: "Passed" },
+  { id: "tc_3", projectId: prj.id, module: "Refund Processing", title: "Refund flow", status: "Passed" },
+  { id: "tc_4", projectId: prj.id, module: "Inventory Sync", title: "Inventory sync flow", status: "Passed" }
 ];
 
 require('d:/QA new project/js/views/projectWorkspace.js');

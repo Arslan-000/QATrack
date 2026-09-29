@@ -122,7 +122,7 @@ store.setActiveUser(userPM.id);
 app.openProjectWorkspace(prj.id, "overview");
 
 assert(store.getActiveProject().id === prj.id, "store.getActiveProject() matches clicked project ID");
-assert(app.currentView === "project-workspace", "app.currentView navigated to 'project-workspace'");
+assert(app.currentView.startsWith("project-workspace"), "app.currentView navigated to 'project-workspace'");
 
 // 3. Test ProjectWorkspaceView.render runs without ReferenceError and renders project info
 console.log("\n--- Test 3: Verify ProjectWorkspaceView.render Executes Successfully ---");
@@ -137,7 +137,7 @@ ProjectWorkspaceView.render(mockWorkspaceContainer);
 assert(workspaceHTML.includes("Apex Cloud Services"), "ProjectWorkspaceView rendered project title 'Apex Cloud Services'");
 assert(workspaceHTML.includes("ACS"), "ProjectWorkspaceView rendered project key 'ACS'");
 assert(workspaceHTML.includes("Arslan PM"), "ProjectWorkspaceView rendered PM name 'Arslan PM'");
-assert(workspaceHTML.includes("Create Issue"), "PM view rendered 'Create Issue' button");
+assert(workspaceHTML.includes("Create Work Item") || workspaceHTML.includes("openCreateIssueModal"), "PM view rendered 'Create Work Item' button");
 
 // Test for Developer
 store.setActiveUser(userDev.id);

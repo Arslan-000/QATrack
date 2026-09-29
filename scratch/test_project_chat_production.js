@@ -461,6 +461,7 @@ async function runTests() {
   console.log("\n--- TEST GROUP 6: Unread Counts, Read State & Message Search ---");
 
   await test("Calculate unread messages accurately", async () => {
+    await new Promise(r => setTimeout(r, 10));
     // Arslan sends a fresh broadcast message
     store.setActiveUser(userArslan.id);
     await store.sendMessage({

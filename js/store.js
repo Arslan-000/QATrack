@@ -68,6 +68,17 @@ class AppStore {
         if (!parsed.aiGenerations) parsed.aiGenerations = [];
         if (!parsed.aiEmailLogs) parsed.aiEmailLogs = [];
         if (!parsed.aiChatHistories) parsed.aiChatHistories = {};
+        if (!parsed.issueComments) parsed.issueComments = [];
+        if (!parsed.issueCommentReactions) parsed.issueCommentReactions = [];
+        if (!parsed.issueCommentMentions) parsed.issueCommentMentions = [];
+        if (!parsed.issueAttachments) parsed.issueAttachments = [];
+        if (!parsed.qaVerifications) parsed.qaVerifications = [];
+        if (!parsed.qaEvidence) parsed.qaEvidence = [];
+        if (!parsed.issueChecklists) parsed.issueChecklists = [];
+        if (!parsed.issueChecklistItems) parsed.issueChecklistItems = [];
+        if (!parsed.issueRelationships) parsed.issueRelationships = [];
+        if (!parsed.issueWatchers) parsed.issueWatchers = [];
+        if (!parsed.issueActivities) parsed.issueActivities = [];
         if (!parsed.documentTemplates || parsed.documentTemplates.length === 0) {
           parsed.documentTemplates = JSON.parse(JSON.stringify(INITIAL_DATA.documentTemplates || []));
         }
@@ -204,17 +215,27 @@ class AppStore {
       this.data.users.unshift(user);
     }
 
-    // Sync cloud spaces and projects from Supabase if available
-    if (metadata.spaces && Array.isArray(metadata.spaces) && metadata.spaces.length > 0) {
-      this.data.workspaces = metadata.spaces;
-      this.data.activeWorkspaceId = metadata.active_space_id || metadata.spaces[0].id;
-    }
-    if (metadata.projects && Array.isArray(metadata.projects) && metadata.projects.length > 0) {
-      this.data.projects = metadata.projects;
-      this.data.activeProjectId = metadata.active_project_id || metadata.projects[0].id;
+    this.data.activeUserId = id;
+
+    // Recalculate accessible workspaces for this user
+    const userSpaces = this.getWorkspaces(id);
+    if (userSpaces.length > 0) {
+      if (!this.data.activeWorkspaceId || !userSpaces.some(w => w.id === this.data.activeWorkspaceId)) {
+        this.data.activeWorkspaceId = userSpaces[0].id;
+      }
+      const userProjects = this.getAuthorizedProjects(this.data.activeWorkspaceId, id);
+      if (userProjects.length > 0) {
+        if (!this.data.activeProjectId || !userProjects.some(p => p.id === this.data.activeProjectId)) {
+          this.data.activeProjectId = userProjects[0].id;
+        }
+      } else {
+        this.data.activeProjectId = null;
+      }
+    } else {
+      this.data.activeWorkspaceId = null;
+      this.data.activeProjectId = null;
     }
 
-    this.data.activeUserId = id;
     this.saveState();
     this.notify();
     return user;
@@ -222,6 +243,8 @@ class AppStore {
 
   clearSupabaseUser() {
     this.data.activeUserId = null;
+    this.data.activeWorkspaceId = null;
+    this.data.activeProjectId = null;
     this.saveState();
     this.notify();
   }
@@ -232,38 +255,79 @@ class AppStore {
     }
   }
 
-  registerUser({ name, email, password, role, isGuest = false }) {
-    const cleanEmail = (email || "").toLowerCase().trim();
-    const cleanName = (name || "").trim();
-    const existing = this.data.users.find(u => (u.email || "").toLowerCase() === cleanEmail);
+  registerUser(userData = {}) {
+    if (!this.data.users) this.data.users = [];
+    const cleanEmail = (userData.email || "").toLowerCase().trim();
+    const cleanName = (userData.name || (cleanEmail ? cleanEmail.split("@")[0] : "Team Member")).trim();
+    const existing = this.data.users.find(u => (userData.id && u.id === userData.id) || (cleanEmail && (u.email || "").toLowerCase() === cleanEmail));
     if (existing) {
+      Object.assign(existing, userData);
       this.data.activeUserId = existing.id;
+      const userSpaces = this.getWorkspaces(existing.id);
+      if (userSpaces.length > 0) {
+        if (!this.data.activeWorkspaceId || !userSpaces.some(w => w.id === this.data.activeWorkspaceId)) {
+          this.data.activeWorkspaceId = userSpaces[0].id;
+        }
+        const userProjects = this.getAuthorizedProjects(this.data.activeWorkspaceId, existing.id);
+        if (userProjects.length > 0) {
+          if (!this.data.activeProjectId || !userProjects.some(p => p.id === this.data.activeProjectId)) {
+            this.data.activeProjectId = userProjects[0].id;
+          }
+        } else {
+          this.data.activeProjectId = null;
+        }
+      } else {
+        this.data.activeWorkspaceId = null;
+        this.data.activeProjectId = null;
+      }
       this.saveState();
+      this.notify();
       return existing;
     }
 
     const nameParts = cleanName.split(/\s+/);
     const initials = nameParts.map(w => w[0]).join('').substring(0, 2).toUpperCase() || 'PW';
-    const id = `usr_${Date.now()}`;
+    const id = userData.id || `usr_${Date.now()}`;
     const colors = ['bg-slate-900', 'bg-rose-600', 'bg-emerald-600', 'bg-purple-600', 'bg-indigo-600', 'bg-amber-600'];
-    const color = colors[this.data.users.length % colors.length];
+    const color = userData.color || colors[this.data.users.length % colors.length];
 
     const newUser = {
       id,
       name: cleanName || "Team Member",
       email: cleanEmail,
-      role: role || "QA Engineer",
-      avatar: null,
+      role: userData.role || "QA Engineer",
+      avatar: userData.avatar || null,
       initials,
       color,
-      password,
-      isGuest,
-      onboarding_completed: true,
-      onboarding_step: "COMPLETE"
+      password: userData.password,
+      isGuest: Boolean(userData.isGuest),
+      onboarding_completed: false,
+      onboarding_step: "WELCOME",
+      ...userData
     };
 
     this.data.users.unshift(newUser);
     this.data.activeUserId = id;
+
+    // Recalculate accessible workspaces for this user
+    const userSpaces = this.getWorkspaces(id);
+    if (userSpaces.length > 0) {
+      if (!this.data.activeWorkspaceId || !userSpaces.some(w => w.id === this.data.activeWorkspaceId)) {
+        this.data.activeWorkspaceId = userSpaces[0].id;
+      }
+      const userProjects = this.getAuthorizedProjects(this.data.activeWorkspaceId, id);
+      if (userProjects.length > 0) {
+        if (!this.data.activeProjectId || !userProjects.some(p => p.id === this.data.activeProjectId)) {
+          this.data.activeProjectId = userProjects[0].id;
+        }
+      } else {
+        this.data.activeProjectId = null;
+      }
+    } else {
+      this.data.activeWorkspaceId = null;
+      this.data.activeProjectId = null;
+    }
+
     this.saveState();
     this.notify();
     return newUser;
@@ -292,6 +356,26 @@ class AppStore {
         user.password = password;
       }
       this.data.activeUserId = user.id;
+
+      // Recalculate accessible workspaces for this user
+      const userSpaces = this.getWorkspaces(user.id);
+      if (userSpaces.length > 0) {
+        if (!this.data.activeWorkspaceId || !userSpaces.some(w => w.id === this.data.activeWorkspaceId)) {
+          this.data.activeWorkspaceId = userSpaces[0].id;
+        }
+        const userProjects = this.getAuthorizedProjects(this.data.activeWorkspaceId, user.id);
+        if (userProjects.length > 0) {
+          if (!this.data.activeProjectId || !userProjects.some(p => p.id === this.data.activeProjectId)) {
+            this.data.activeProjectId = userProjects[0].id;
+          }
+        } else {
+          this.data.activeProjectId = null;
+        }
+      } else {
+        this.data.activeWorkspaceId = null;
+        this.data.activeProjectId = null;
+      }
+
       this.saveState();
       this.notify();
       return user;
@@ -310,6 +394,25 @@ class AppStore {
         role: role
       });
       this.data.activeUserId = user.id;
+
+      const userSpaces = this.getWorkspaces(user.id);
+      if (userSpaces.length > 0) {
+        if (!this.data.activeWorkspaceId || !userSpaces.some(w => w.id === this.data.activeWorkspaceId)) {
+          this.data.activeWorkspaceId = userSpaces[0].id;
+        }
+        const userProjects = this.getAuthorizedProjects(this.data.activeWorkspaceId, user.id);
+        if (userProjects.length > 0) {
+          if (!this.data.activeProjectId || !userProjects.some(p => p.id === this.data.activeProjectId)) {
+            this.data.activeProjectId = userProjects[0].id;
+          }
+        } else {
+          this.data.activeProjectId = null;
+        }
+      } else {
+        this.data.activeWorkspaceId = null;
+        this.data.activeProjectId = null;
+      }
+
       this.saveState();
       this.notify();
       return user;
@@ -329,8 +432,14 @@ class AppStore {
         const { data: spaces, error: spaceErr } = await sb.from('spaces').select('*');
         if (!spaceErr && Array.isArray(spaces)) {
           this.data.workspaces = spaces;
-          if (!this.data.activeWorkspaceId && spaces.length > 0) {
-            this.data.activeWorkspaceId = spaces[0].id;
+          const userSpaces = this.getWorkspaces(userId || this.data.activeUserId);
+          if (userSpaces.length > 0) {
+            if (!this.data.activeWorkspaceId || !userSpaces.some(w => w.id === this.data.activeWorkspaceId)) {
+              this.data.activeWorkspaceId = userSpaces[0].id;
+            }
+          } else {
+            this.data.activeWorkspaceId = null;
+            this.data.activeProjectId = null;
           }
         }
 
@@ -353,13 +462,13 @@ class AppStore {
             dueDate: p.due_date || p.dueDate || "",
             endDate: p.due_date || p.endDate || ""
           }));
-          const spaceProjects = this.data.projects.filter(p => p.workspace_id === this.data.activeWorkspaceId);
-          const isCurrentActiveValid = this.data.activeProjectId && this.data.projects.some(p => p.id === this.data.activeProjectId || p.key === this.data.activeProjectId);
+          const spaceProjects = this.getAuthorizedProjects(this.data.activeWorkspaceId, userId || this.data.activeUserId);
+          const isCurrentActiveValid = this.data.activeProjectId && spaceProjects.some(p => p.id === this.data.activeProjectId || p.key === this.data.activeProjectId);
           if (!isCurrentActiveValid) {
             if (spaceProjects.length > 0) {
               this.data.activeProjectId = spaceProjects[0].id;
-            } else if (this.data.projects.length > 0) {
-              this.data.activeProjectId = this.data.projects[0].id;
+            } else {
+              this.data.activeProjectId = null;
             }
           }
         }
@@ -410,6 +519,8 @@ class AppStore {
             environment: i.environment || "Staging",
             releaseVersion: i.release_version || i.releaseVersion || "",
             buildVersion: i.build_version || i.buildVersion || "",
+            dueDate: i.due_date || i.dueDate || "",
+            due_date: i.due_date || i.dueDate || "",
             reopenCount: Number(i.reopen_count || i.reopenCount || 0),
             createdAt: i.created_at || i.createdAt || new Date().toISOString(),
             updatedAt: i.updated_at || i.updatedAt || new Date().toISOString()
@@ -518,7 +629,53 @@ class AppStore {
   }
 
   // Workspace & Space Management
-  getWorkspaces() {
+  getWorkspaces(userId = null) {
+    const allSpaces = this.data.workspaces || [];
+    const activeUser = userId ? this.getUserById(userId) : this.getActiveUser();
+    if (!activeUser || !activeUser.email) return [];
+
+    const userEmail = (activeUser.email || '').toLowerCase().trim();
+    const uid = activeUser.id || activeUser.supabase_id;
+
+    // Filter spaces where user is owner, creator, or member
+    return allSpaces.filter(ws => {
+      // 1. Owner or creator ID match
+      if (ws.owner_id && (ws.owner_id === uid || ws.owner_id === activeUser.id)) return true;
+      if (ws.created_by && (ws.created_by.toLowerCase().trim() === userEmail || ws.created_by === uid)) return true;
+
+      // 2. Embedded members list
+      if (ws.members && Array.isArray(ws.members)) {
+        if (ws.members.some(m => {
+          const mEmail = (typeof m === 'string' ? m : (m.email || '')).toLowerCase().trim();
+          const mId = (typeof m === 'object' ? (m.id || m.userId || m.user_id) : m);
+          return (mEmail && mEmail === userEmail) || (mId && (mId === uid || mId === activeUser.id));
+        })) return true;
+      }
+
+      // 3. Workspace members table
+      if (this.data.workspaceMembers && Array.isArray(this.data.workspaceMembers)) {
+        if (this.data.workspaceMembers.some(wm => {
+          if (wm.workspace_id !== ws.id && wm.workspaceId !== ws.id) return false;
+          const wmEmail = (wm.email || '').toLowerCase().trim();
+          const wmId = wm.user_id || wm.userId || wm.id;
+          return (wmEmail && wmEmail === userEmail) || (wmId && (wmId === uid || wmId === activeUser.id));
+        })) return true;
+      }
+
+      // 4. Assigned project in this workspace
+      const wsProjects = (this.data.projects || []).filter(p => p.workspace_id === ws.id || p.workspaceId === ws.id);
+      if (wsProjects.some(p => {
+        if (p.pmId === uid || p.pmId === activeUser.id || p.pmId === activeUser.name) return true;
+        if (p.members && Array.isArray(p.members) && (p.members.includes(uid) || p.members.includes(activeUser.id) || p.members.includes(userEmail))) return true;
+        if (this.data.projectMembers && this.data.projectMembers.some(pm => (pm.projectId === p.id || pm.project_id === p.id) && ((pm.email && pm.email.toLowerCase() === userEmail) || (pm.userId === uid || pm.user_id === uid)))) return true;
+        return false;
+      })) return true;
+
+      return false;
+    });
+  }
+
+  getAllWorkspaces() {
     return this.data.workspaces || [];
   }
 
@@ -549,6 +706,7 @@ class AppStore {
       this.data.activeWorkspaceId = workspaces[0].id;
       return workspaces[0];
     }
+    this.data.activeWorkspaceId = null;
     return null;
   }
 
@@ -606,6 +764,10 @@ class AppStore {
     const exists = this.data.workspaces.find(w => w.id === ws.id || w.slug === ws.slug);
     
     const activeUser = this.getActiveUser();
+    if (activeUser) {
+      if (!ws.owner_id) ws.owner_id = activeUser.id;
+      if (!ws.created_by) ws.created_by = activeUser.email;
+    }
     if (!ws.members) {
       ws.members = activeUser ? [{ id: activeUser.id, name: activeUser.name, email: activeUser.email, role: "OWNER" }] : [];
     }
@@ -1109,7 +1271,8 @@ class AppStore {
     }
 
     this.notify();
-    return activeUser;
+    const targetUser = (this.data.users && this.data.users.find(u => u.id === targetId)) || activeUser;
+    return targetUser || activeUser;
   }
 
   // ==========================================
@@ -1433,14 +1596,8 @@ class AppStore {
   }
 
   getActiveUser() {
-    return this.data.users.find(u => u.id === this.data.activeUserId) || this.data.users[0] || {
-      id: "usr_guest",
-      name: "Guest User",
-      email: "guest@pulsewave.io",
-      role: "QA Engineer",
-      initials: "GU",
-      color: "bg-slate-600"
-    };
+    if (!this.data.activeUserId) return null;
+    return (this.data.users || []).find(u => u.id === this.data.activeUserId) || null;
   }
 
   setActiveUser(userId) {
@@ -1463,23 +1620,24 @@ class AppStore {
   }
 
   getAuthorizedProjects(workspaceId = null, userId = null) {
-    const wsId = workspaceId || this.data.activeWorkspaceId;
-    let all = (this.data.projects || []).filter(p => !wsId || p.workspace_id === wsId || p.workspaceId === wsId);
-    
-    if (all.length === 0 && (this.data.projects || []).length > 0) {
-      all = this.data.projects || [];
-    }
+    const wsId = workspaceId || (this.getActiveWorkspace() ? this.getActiveWorkspace().id : (this.data.activeWorkspaceId || null));
+    const all = wsId
+      ? (this.data.projects || []).filter(p => p.workspace_id === wsId || p.workspaceId === wsId)
+      : (this.data.projects || []);
+    if (all.length === 0) return [];
 
-    const activeUser = this.getActiveUser();
+    const activeUser = userId ? this.getUserById(userId) : this.getActiveUser();
     const uId = userId || (activeUser ? activeUser.id : null);
     const uEmail = (activeUser ? activeUser.email : '')?.toLowerCase().trim();
 
     if (!uId && !uEmail) return all;
 
-    const spaceRole = this.getUserSpaceRole(wsId, uId);
-    // PM, QA, OWNER, or unassigned default have full visibility over all projects in the Space
-    if (!spaceRole || spaceRole === "PM" || spaceRole === "QA" || spaceRole === "OWNER") {
-      return all;
+    if (wsId) {
+      const spaceRole = this.getUserSpaceRole(wsId, uId);
+      // PM, QA, OWNER have full visibility over all projects in their Space
+      if (spaceRole === "PM" || spaceRole === "QA" || spaceRole === "OWNER") {
+        return all;
+      }
     }
 
     // Developer and Viewer see projects where they are assigned, created, or listed as PM
@@ -1489,7 +1647,7 @@ class AppStore {
         .map(pm => pm.projectId || pm.project_id)
     );
 
-    return all.filter(p => userPrjIds.has(p.id) || p.pmId === activeUser.name || p.pm_id === activeUser.name || p.pmId === uId || (p.members && p.members.includes(uId)));
+    return all.filter(p => userPrjIds.has(p.id) || p.pmId === activeUser?.name || p.pm_id === activeUser?.name || p.pmId === uId || (p.members && p.members.includes(uId)));
   }
 
   getActiveProject() {
@@ -1497,7 +1655,12 @@ class AppStore {
     const activePrjId = this.data.activeProjectId;
     const found = projects.find(p => p.id === activePrjId || p.key === activePrjId);
     if (found) return found;
-    return projects.length > 0 ? projects[0] : ((this.data.projects && this.data.projects.length > 0) ? this.data.projects[0] : null);
+    if (projects.length > 0) {
+      this.data.activeProjectId = projects[0].id;
+      return projects[0];
+    }
+    this.data.activeProjectId = null;
+    return null;
   }
 
   setActiveProject(projectId) {
@@ -1643,29 +1806,8 @@ class AppStore {
 
 
   // =========================================================================
-  // WORKSPACE MEMBERS & USER REGISTRATION (Sections 1-4)
+  // WORKSPACE MEMBERS (Sections 1-4)
   // =========================================================================
-  registerUser(userData) {
-    if (!this.data.users) this.data.users = [];
-    const email = (userData.email || '').toLowerCase().trim();
-    let user = this.data.users.find(u => (userData.id && u.id === userData.id) || (email && u.email && u.email.toLowerCase() === email));
-    if (user) {
-      Object.assign(user, userData);
-    } else {
-      user = {
-        id: userData.id || `usr_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
-        name: userData.name || (email ? email.split('@')[0] : 'Team Member'),
-        email: email,
-        role: userData.role || 'QA Engineer',
-        initials: (userData.name || email || 'TM').split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase(),
-        color: userData.color || 'bg-slate-900',
-        ...userData
-      };
-      this.data.users.push(user);
-    }
-    this.saveState();
-    return user;
-  }
 
   getWorkspaceMembers(workspaceId = null) {
     const wsId = workspaceId || this.data.activeWorkspaceId;
@@ -1766,7 +1908,7 @@ class AppStore {
   getUserSpaceRole(workspaceId = null, userId = null) {
     const wsId = workspaceId || this.data.activeWorkspaceId;
     const activeWs = wsId ? this.getWorkspaceById(wsId) : this.getActiveWorkspace();
-    if (!activeWs) return "PM"; // Default baseline if no workspace selected yet
+    if (!activeWs) return null; // No active workspace
 
     const activeUser = this.getActiveUser();
     const uId = userId || (activeUser ? activeUser.id : null);
@@ -1779,7 +1921,7 @@ class AppStore {
     }
 
     // Check if user is space owner/creator
-    if (activeWs.owner_id === uId || activeWs.created_by === uId || (activeWs.members && activeWs.members.some(m => (m.id === uId || m.user_id === uId || m.email?.toLowerCase() === uEmail) && (m.role === 'OWNER' || m.role === 'PROJECT_MANAGER' || m.role === 'PM')))) {
+    if (activeWs.owner_id === uId || (activeWs.created_by && activeWs.created_by.toLowerCase().trim() === uEmail) || (activeWs.members && activeWs.members.some(m => (m.id === uId || m.user_id === uId || m.email?.toLowerCase() === uEmail) && (m.role === 'OWNER' || m.role === 'PROJECT_MANAGER' || m.role === 'PM')))) {
       return "PM";
     }
 
@@ -1795,14 +1937,7 @@ class AppStore {
       return r;
     }
 
-    if (!uId || (activeUser && (activeUser.id === uId || activeUser.email === uEmail))) {
-      const userRole = (userObj?.role || activeUser?.role || "PM").toUpperCase();
-      if (userRole.includes('PM') || userRole.includes('MANAGER') || userRole.includes('OWNER') || userRole.includes('ADMIN')) return "PM";
-      if (userRole.includes('QA') || userRole.includes('TESTER')) return "QA";
-      if (userRole.includes('DEV') || userRole.includes('ENGINEER')) return "DEVELOPER";
-      return userRole || "PM";
-    }
-    return null;
+    return null; // Not a member of this workspace
   }
 
   // 2. Project-Level Role (PM, QA, DEVELOPER, VIEWER)
@@ -1956,14 +2091,14 @@ class AppStore {
     const seenUserIds = new Set();
 
     // 1. Ensure project PM is always included as OWNER / Project Manager
-    if (project.pmId) {
+    if (project.pmId && project.pmId !== 'unassigned' && project.pmId !== 'Unassigned') {
       const pmUser = this.getUserById(project.pmId);
-      const pmEmail = (pmUser.email || (project.pmId && project.pmId.includes('@') ? project.pmId : '') || (activeUser && activeUser.email) || '').toLowerCase();
-      const pmName = this.formatDisplayName(pmUser.name && pmUser.name !== 'Unassigned' ? pmUser.name : (pmUser.email || project.pmId), pmEmail);
+      const pmEmail = (pmUser?.email && pmUser.email !== 'guest@pulsewave.io' ? pmUser.email : (project.pmId && project.pmId.includes('@') ? project.pmId : 'pm@pulsewave.io')).toLowerCase();
+      const pmName = this.formatDisplayName(pmUser?.name && pmUser.name !== 'Unassigned' ? pmUser.name : (pmUser?.email || project.pmId), pmEmail);
       const initials = this.getInitials(pmName);
 
       if (pmEmail) seenEmails.add(pmEmail);
-      if (pmUser.id && pmUser.id !== 'unassigned') seenUserIds.add(pmUser.id);
+      if (pmUser?.id && pmUser.id !== 'unassigned') seenUserIds.add(pmUser.id);
       if (project.pmId) seenUserIds.add(project.pmId);
 
       const pmIssues = issues.filter(i => (i.assigneeId === pmUser.id || i.assignee_id === pmUser.id || i.developerId === pmUser.id));
@@ -2145,6 +2280,23 @@ class AppStore {
       if (memberRef && !proj.members.includes(memberRef)) {
         proj.members.push(memberRef);
       }
+    }
+
+    // Real-time Project Assignment Notification & Email
+    const activeUser = this.getActiveUser();
+    if (email) {
+      this.addNotification({
+        title: `Project Assignment: ${proj ? proj.name : 'New Project'}`,
+        message: `${activeUser ? activeUser.name : 'Project Lead'} assigned you to project "${proj ? proj.name : 'Project'}" as ${role}.`,
+        type: 'assignment',
+        emailType: 'project_assignment',
+        recipientId: userId || null,
+        recipientEmail: email,
+        recipientName: name || email,
+        projectId: projectId,
+        link: `project-workspace?projectId=${projectId}`,
+        actionText: 'Open Project Workspace'
+      });
     }
 
     this.saveState();
@@ -2383,16 +2535,19 @@ class AppStore {
 
     const activeUser = this.getActiveUser();
     const currentUserId = actingUserId || (activeUser ? activeUser.id : null);
-    const currentUserEmail = (activeUser?.email || '')?.toLowerCase().trim();
+    const actingUser = currentUserId ? this.getUserById(currentUserId) : activeUser;
+    const currentUserEmail = (actingUser?.email || activeUser?.email || '')?.toLowerCase().trim();
 
     if (!this.data.workspaceMembers) this.data.workspaceMembers = [];
-    const member = this.data.workspaceMembers.find(m => m.id === memberIdOrEmail || m.user_id === memberIdOrEmail || m.email?.toLowerCase() === String(memberIdOrEmail).toLowerCase());
+    const ws = this.getWorkspaceById(wsId);
+    const member = this.data.workspaceMembers.find(m => m.id === memberIdOrEmail || m.user_id === memberIdOrEmail || m.email?.toLowerCase() === String(memberIdOrEmail).toLowerCase()) ||
+                   (ws?.members || []).find(m => m.id === memberIdOrEmail || m.user_id === memberIdOrEmail || m.email?.toLowerCase() === String(memberIdOrEmail).toLowerCase());
     
-    const targetUserId = member?.user_id || memberIdOrEmail;
-    const targetEmail = (member?.email || memberIdOrEmail)?.toLowerCase().trim();
+    const targetUserId = member?.user_id || member?.id || memberIdOrEmail;
+    const targetEmail = (member?.email || (String(memberIdOrEmail).includes('@') ? memberIdOrEmail : ''))?.toLowerCase().trim();
 
     // Self-deletion guard
-    if ((currentUserId && targetUserId === currentUserId) || (currentUserEmail && targetEmail === currentUserEmail)) {
+    if ((currentUserId && targetUserId === currentUserId) || (currentUserEmail && targetEmail && targetEmail === currentUserEmail)) {
       throw new Error("You cannot delete your own account from the Space. Another Project Manager must remove you.");
     }
 
@@ -2400,7 +2555,6 @@ class AppStore {
     this.data.workspaceMembers = this.data.workspaceMembers.filter(m => m.id !== memberIdOrEmail && m.user_id !== memberIdOrEmail && m.email?.toLowerCase() !== targetEmail);
     
     // Clean workspace.members array
-    const ws = this.getWorkspaceById(wsId);
     if (ws && Array.isArray(ws.members)) {
       ws.members = ws.members.filter(m => m.id !== targetUserId && m.email?.toLowerCase() !== targetEmail);
     }
@@ -2563,8 +2717,8 @@ class AppStore {
         initials: derivedName.substring(0, 2).toUpperCase()
       });
     } else {
-      existingUser.password = initialPassword;
-      existingUser.role = normRole;
+      if (password) existingUser.password = password;
+      if (!existingUser.password) existingUser.password = initialPassword;
     }
 
     this.saveState();
@@ -2636,6 +2790,23 @@ class AppStore {
         }
       }
     }
+
+    // Trigger in-app notification & email dispatch for invited user
+    const appOrigin = (typeof window !== 'undefined' && window.location && window.location.origin) ? window.location.origin : 'https://pulsewave.io';
+    const inviteUrl = `${appOrigin}/#accept-invite?token=${token}&email=${encodeURIComponent(normalizedEmail)}`;
+    const targetProject = projectId ? this.getProjectById(projectId) : null;
+    this.addNotification({
+      title: `Workspace Invitation: ${normalizedEmail}`,
+      message: `You were invited to ${scope === 'PROJECT' ? (targetProject ? targetProject.name : 'Project') : (activeWs ? activeWs.name : 'Space')} as ${normRole}.`,
+      type: 'assignment',
+      emailType: 'project_assignment',
+      recipientEmail: normalizedEmail,
+      recipientName: derivedName || normalizedEmail.split('@')[0],
+      projectId: projectId || null,
+      workspaceId: wsId || null,
+      link: inviteUrl,
+      actionText: 'Accept Invitation'
+    });
 
     this.notify();
     return newInv;
@@ -3024,20 +3195,22 @@ class AppStore {
     });
   }
 
-  getTestCases(projectId = null) {
-    let list = this.data.testCases || [];
-    if (projectId) {
-      list = list.filter(t => (t.projectId === projectId || t.project_id === projectId));
-    }
-    return list;
-  }
-
   // ==========================================
   // Sprints Management (Section 2 & 3)
   // ==========================================
   getSprints(projectId = null) {
-    let sprints = this.data.sprints || [];
-    if (projectId) {
+    const authorizedProjects = this.getAuthorizedProjects() || [];
+    const authorizedProjectIds = new Set(authorizedProjects.map(p => p.id));
+    let sprints;
+    if (authorizedProjects.length > 0) {
+      sprints = (this.data.sprints || []).filter(s => {
+        const pId = s.projectId || s.project_id;
+        return pId && (authorizedProjectIds.has(pId) || (projectId && (pId === projectId || s.projectId === projectId)));
+      });
+    } else {
+      sprints = (this.data.sprints || []);
+    }
+    if (projectId && projectId !== "all") {
       sprints = sprints.filter(s => (s.projectId === projectId || s.project_id === projectId));
     }
     return sprints;
@@ -3050,7 +3223,7 @@ class AppStore {
   getActiveSprint(projectId = null) {
     const pId = projectId || this.data.activeProjectId;
     const projectSprints = this.getSprints(pId);
-    return projectSprints.find(s => s.status === "active" || s.status === "Active") || projectSprints[0] || null;
+    return projectSprints.find(s => s.status === "active" || s.status === "Active" || s.status === "In Progress") || null;
   }
 
   async createSprint(sprintInput) {
@@ -3146,48 +3319,255 @@ class AppStore {
 
     const res = await this.updateSprint(sprintId, { status: "Active" });
 
+    const pId = sprint.projectId || sprint.project_id;
+    const proj = this.getProjectById(pId);
+    const activeUser = this.getActiveUser();
+
     this.addNotification({
       title: `Sprint Started: ${sprint.name}`,
-      message: `Sprint "${sprint.name}" is now active with ${sprint.totalPoints || 0} story points.`,
+      message: `Sprint "${sprint.name}" is now active in ${proj ? proj.name : 'project'}.`,
       type: 'sprint',
-      projectId: sprint.projectId || sprint.project_id
+      emailType: 'sprint_milestone',
+      projectId: pId,
+      link: `project-workspace?projectId=${pId}`,
+      actionText: 'View Sprint Board'
+    });
+
+    // Notify project members via email
+    const pMembers = this.getProjectMembers ? this.getProjectMembers(pId) : [];
+    pMembers.forEach(mem => {
+      const mEmail = mem.email;
+      const mId = mem.userId || mem.id;
+      if (mEmail && mId !== (activeUser ? activeUser.id : null)) {
+        this.dispatchEmailNotification({
+          recipient: mEmail,
+          recipientId: mId,
+          recipientName: mem.name,
+          subject: `[PulseWave] 🚀 Sprint Started: ${sprint.name}`,
+          type: 'sprint_milestone',
+          title: `Sprint Started: ${sprint.name}`,
+          message: `Sprint "${sprint.name}" has officially started in ${proj ? proj.name : 'your project'}. Check the sprint backlog for committed items.`,
+          projectId: pId,
+          actionUrl: `project-workspace?projectId=${pId}`,
+          actionText: 'Open Sprint Board'
+        }).catch(err => console.warn("Sprint start email notice:", err));
+      }
     });
 
     return res;
   }
 
-  async completeSprint(sprintId) {
+  async completeSprint(sprintId, rolloverDestination = 'backlog') {
     const sprint = this.getSprintById(sprintId);
+    if (!sprint) return null;
+
+    const projectId = sprint.projectId || sprint.project_id;
+    const proj = this.getProjectById(projectId);
+    const activeUser = this.getActiveUser();
+    const issues = this.getIssues(projectId) || [];
+    const sprintIssues = issues.filter(i => (i.sprintId === sprintId || i.sprint_id === sprintId));
+    
+    // Incomplete issues (not Done/Closed/QA Passed) roll over
+    const incompleteIssues = sprintIssues.filter(i => i.status !== 'Done' && i.status !== 'Closed' && i.qaStatus !== 'Passed');
+    const targetSprintId = rolloverDestination === 'backlog' ? null : rolloverDestination;
+
+    incompleteIssues.forEach(issue => {
+      issue.sprintId = targetSprintId;
+      issue.sprint_id = targetSprintId;
+      issue.updatedAt = new Date().toISOString();
+    });
+
     const res = await this.updateSprint(sprintId, { status: "Completed" });
-    if (sprint) {
-      this.addNotification({
-        title: `Sprint Completed: ${sprint.name}`,
-        message: `Sprint "${sprint.name}" has been completed.`,
-        type: 'sprint',
-        projectId: sprint.projectId || sprint.project_id
-      });
+
+    this.addNotification({
+      title: `Sprint Completed: ${sprint.name}`,
+      message: `Sprint "${sprint.name}" has been completed. ${incompleteIssues.length} unfinished issue(s) rolled over to ${targetSprintId ? 'next sprint' : 'backlog'}.`,
+      type: 'sprint',
+      emailType: 'sprint_milestone',
+      projectId: projectId,
+      link: `project-workspace?projectId=${projectId}`,
+      actionText: 'View Sprint Report'
+    });
+
+    // Notify project members via email
+    const pMembers = this.getProjectMembers ? this.getProjectMembers(projectId) : [];
+    pMembers.forEach(mem => {
+      const mEmail = mem.email;
+      const mId = mem.userId || mem.id;
+      if (mEmail && mId !== (activeUser ? activeUser.id : null)) {
+        this.dispatchEmailNotification({
+          recipient: mEmail,
+          recipientId: mId,
+          recipientName: mem.name,
+          subject: `[PulseWave] 🏁 Sprint Completed: ${sprint.name}`,
+          type: 'sprint_milestone',
+          title: `Sprint Completed: ${sprint.name}`,
+          message: `Sprint "${sprint.name}" in ${proj ? proj.name : 'project'} is closed. ${sprintIssues.length - incompleteIssues.length}/${sprintIssues.length} issues completed successfully.`,
+          projectId: projectId,
+          actionUrl: `project-workspace?projectId=${projectId}`,
+          actionText: 'View Sprint Summary'
+        }).catch(err => console.warn("Sprint complete email notice:", err));
+      }
+    });
+
+    this.saveState();
+    this.notify();
+
+    // Supabase sync for rolled over issues
+    const sb = (typeof window !== 'undefined' && window.supabaseClient) || (typeof supabaseClient !== 'undefined' ? supabaseClient : null);
+    if (sb && sb.from && incompleteIssues.length > 0) {
+      (async () => {
+        try {
+          const issueIds = incompleteIssues.map(i => i.id);
+          await sb.from('issues').update({ sprint_id: targetSprintId }).in('id', issueIds);
+        } catch (e) {
+          console.warn("Supabase rollover issues notice:", e);
+        }
+      })();
     }
+
     return res;
   }
 
-  moveIssueToSprint(issueId, sprintId) {
+  async deleteSprint(sprintId) {
+    if (!sprintId || !this.data.sprints) return false;
+    const sprint = this.getSprintById(sprintId);
+    if (!sprint) return false;
+
+    const projectId = sprint.projectId || sprint.project_id;
+
+    // 1. Move all issues assigned to this sprint to Product Backlog
+    const issues = this.data.issues || [];
+    const sprintIssues = issues.filter(i => i.sprintId === sprintId || i.sprint_id === sprintId);
+    sprintIssues.forEach(issue => {
+      issue.sprintId = null;
+      issue.sprint_id = null;
+      issue.updatedAt = new Date().toISOString();
+    });
+
+    // 2. Remove sprint from in-memory array
+    this.data.sprints = this.data.sprints.filter(s => s.id !== sprintId);
+    this.saveState();
+    this.notify();
+
+    // 3. Supabase sync
+    const sb = (typeof window !== 'undefined' && window.supabaseClient) || (typeof supabaseClient !== 'undefined' ? supabaseClient : null);
+    if (sb && sb.from) {
+      (async () => {
+        try {
+          await sb.from('sprints').delete().eq('id', sprintId);
+          if (sprintIssues.length > 0) {
+            const issueIds = sprintIssues.map(i => i.id);
+            await sb.from('issues').update({ sprint_id: null }).in('id', issueIds);
+          }
+        } catch (e) {
+          console.warn("Supabase sprint delete notice:", e);
+        }
+      })();
+    }
+
+    return true;
+  }
+
+  async moveIssueToSprint(issueId, sprintId) {
     const issue = this.getIssueById(issueId);
-    if (!issue) return;
+    if (!issue) return null;
 
-    const oldSprintId = issue.sprintId;
-    issue.sprintId = sprintId; // null means Product Backlog
-    issue.updatedAt = new Date().toLocaleString();
+    const normalizedSprintId = sprintId ? sprintId : null;
+    issue.sprintId = normalizedSprintId;
+    issue.sprint_id = normalizedSprintId;
+    issue.updatedAt = new Date().toISOString();
 
-    const targetName = sprintId ? (this.getSprintById(sprintId)?.name || "Sprint") : "Product Backlog";
+    const targetName = normalizedSprintId ? (this.getSprintById(normalizedSprintId)?.name || "Sprint") : "Product Backlog";
     const activeUser = this.getActiveUser();
 
     this.addActivity({
       issueKey: issue.key,
-      user: activeUser.name,
+      user: activeUser ? activeUser.name : "Team Member",
       action: `Moved ${issue.key} to ${targetName}`
     });
 
     this.saveState();
+    this.notify();
+
+    // Sync to Supabase
+    const sb = (typeof window !== 'undefined' && window.supabaseClient) || (typeof supabaseClient !== 'undefined' ? supabaseClient : null);
+    if (sb && sb.from) {
+      (async () => {
+        try {
+          await sb.from('issues').update({ sprint_id: normalizedSprintId }).eq('id', issue.id);
+        } catch (e) {
+          console.warn("Supabase move issue to sprint notice:", e);
+        }
+      })();
+    }
+
+    return issue;
+  }
+
+  async bulkMoveIssuesToSprint(issueIds = [], sprintId = null) {
+    if (!Array.isArray(issueIds) || issueIds.length === 0) return 0;
+    const normalizedSprintId = sprintId ? sprintId : null;
+    const activeUser = this.getActiveUser();
+
+    let count = 0;
+    issueIds.forEach(id => {
+      const issue = this.getIssueById(id);
+      if (issue) {
+        issue.sprintId = normalizedSprintId;
+        issue.sprint_id = normalizedSprintId;
+        issue.updatedAt = new Date().toISOString();
+        count++;
+      }
+    });
+
+    const targetName = normalizedSprintId ? (this.getSprintById(normalizedSprintId)?.name || "Sprint") : "Product Backlog";
+    this.addActivity({
+      user: activeUser ? activeUser.name : "Team Member",
+      action: `Bulk moved ${count} issue(s) to ${targetName}`
+    });
+
+    this.saveState();
+    this.notify();
+
+    // Sync to Supabase
+    const sb = (typeof window !== 'undefined' && window.supabaseClient) || (typeof supabaseClient !== 'undefined' ? supabaseClient : null);
+    if (sb && sb.from && count > 0) {
+      (async () => {
+        try {
+          await sb.from('issues').update({ sprint_id: normalizedSprintId }).in('id', issueIds);
+        } catch (e) {
+          console.warn("Supabase bulk move issues notice:", e);
+        }
+      })();
+    }
+
+    return count;
+  }
+
+  async quickUpdateStoryPoints(issueId, points) {
+    const issue = this.getIssueById(issueId);
+    if (!issue) return null;
+
+    const numPoints = Math.max(0, parseInt(points, 10) || 0);
+    issue.storyPoints = numPoints;
+    issue.story_points = numPoints;
+    issue.updatedAt = new Date().toISOString();
+
+    this.saveState();
+    this.notify();
+
+    const sb = (typeof window !== 'undefined' && window.supabaseClient) || (typeof supabaseClient !== 'undefined' ? supabaseClient : null);
+    if (sb && sb.from) {
+      (async () => {
+        try {
+          await sb.from('issues').update({ story_points: numPoints }).eq('id', issue.id);
+        } catch (e) {
+          console.warn("Supabase story points update notice:", e);
+        }
+      })();
+    }
+
     return issue;
   }
 
@@ -3195,8 +3575,18 @@ class AppStore {
   // Issues & Bugs Management (Section 4, 5, 6, 7)
   // ==========================================
   getIssues(projectId = null, sprintId = undefined) {
-    let list = this.data.issues || [];
-    if (projectId) {
+    const authorizedProjects = this.getAuthorizedProjects() || [];
+    const authorizedProjectIds = new Set(authorizedProjects.map(p => p.id));
+    let list;
+    if (authorizedProjects.length > 0) {
+      list = (this.data.issues || []).filter(i => {
+        const pId = i.projectId || i.project_id;
+        return pId && (authorizedProjectIds.has(pId) || (projectId && (pId === projectId || i.projectId === projectId)));
+      });
+    } else {
+      list = (this.data.issues || []);
+    }
+    if (projectId && projectId !== "all") {
       list = list.filter(i => (i.projectId === projectId || i.project_id === projectId));
     }
     if (sprintId !== undefined && sprintId !== "all" && sprintId !== null) {
@@ -3217,9 +3607,11 @@ class AppStore {
     const activeUser = this.getActiveUser();
     const project = issueInput.projectId ? this.getProjectById(issueInput.projectId) : this.getActiveProject();
     
-    const existingCount = (this.data.issues || []).length + 101;
-    const prefix = issueInput.type === "Bug" ? "BUG" : issueInput.type === "Story" ? "STY" : "TSK";
-    const key = `${prefix}-${existingCount}`;
+    const pId = project ? project.id : null;
+    const projectIssues = pId ? (this.data.issues || []).filter(i => i.projectId === pId || i.project_id === pId) : (this.data.issues || []);
+    const existingCount = projectIssues.length + 101;
+    const prefix = project && project.key ? project.key.toUpperCase() : (issueInput.type === "Bug" ? "BUG" : issueInput.type === "Story" ? "STY" : "TSK");
+    const key = issueInput.key || `${prefix}-${existingCount}`;
     const id = issueInput.id || `iss-${Date.now()}`;
 
     const newIssue = {
@@ -3249,7 +3641,8 @@ class AppStore {
       releaseVersion: issueInput.releaseVersion || "v2.4.1",
       browser: issueInput.browser || "Chrome 151",
       device: issueInput.device || "Windows Desktop",
-      dueDate: issueInput.dueDate || "",
+      dueDate: issueInput.dueDate || issueInput.due_date || (project?.dueDate || project?.due_date || ""),
+      due_date: issueInput.dueDate || issueInput.due_date || (project?.dueDate || project?.due_date || ""),
       // QA Verification & Quality Gate fields
       qaStatus: issueInput.qaStatus || "Not Tested",
       qa_status: issueInput.qaStatus || "Not Tested",
@@ -3298,11 +3691,43 @@ class AppStore {
         title: `Task Assigned: ${newIssue.key}`,
         message: `${activeUser ? activeUser.name : 'Team Lead'} assigned ${newIssue.type || 'task'} "${newIssue.title}" to ${devUser ? devUser.name : 'you'}.`,
         type: 'assignment',
+        emailType: 'issue_assignment',
         issueKey: newIssue.key,
         issueId: newIssue.id,
+        issueTitle: newIssue.title,
+        issuePriority: newIssue.priority,
         projectId: newIssue.projectId,
         recipientId: assignedDevId,
-        recipientEmail: devUser ? devUser.email : null
+        recipientEmail: devUser ? devUser.email : null,
+        recipientName: devUser ? devUser.name : null,
+        link: 'all-issues',
+        actionText: `View ${newIssue.key}`
+      });
+    }
+
+    // Critical Bug Alert: Broadcast email to project team
+    if (newIssue.priority === "Critical" && newIssue.type === "Bug" && newIssue.projectId) {
+      const pMembers = this.getProjectMembers ? this.getProjectMembers(newIssue.projectId) : [];
+      pMembers.forEach(mem => {
+        const mEmail = mem.email;
+        const mId = mem.userId || mem.id;
+        if (mEmail && mId !== (activeUser ? activeUser.id : null)) {
+          this.dispatchEmailNotification({
+            recipient: mEmail,
+            recipientId: mId,
+            recipientName: mem.name,
+            subject: `[PulseWave] 🚨 Blocker Defect Logged: ${newIssue.key}`,
+            type: 'critical_defect',
+            title: `Critical Defect: ${newIssue.key}`,
+            message: `Blocker bug "${newIssue.title}" was logged by ${activeUser ? activeUser.name : 'Tester'} on ${newIssue.environment || 'Staging'}. Immediate attention requested.`,
+            projectId: newIssue.projectId,
+            issueKey: newIssue.key,
+            issueTitle: newIssue.title,
+            issuePriority: 'Critical',
+            actionUrl: 'all-issues',
+            actionText: `Inspect ${newIssue.key}`
+          }).catch(err => console.warn("Critical bug email notice:", err));
+        }
       });
     }
 
@@ -3348,8 +3773,8 @@ class AppStore {
     const activeUser = this.getActiveUser();
     const oldDevId = issue.developerId || issue.assigneeId;
     const newDevId = updateData.developerId || updateData.assigneeId;
-    const oldQaId = issue.qaId;
-    const newQaId = updateData.qaId;
+    if (updateData.dueDate !== undefined) updateData.due_date = updateData.dueDate;
+    if (updateData.due_date !== undefined) updateData.dueDate = updateData.due_date;
 
     Object.assign(issue, updateData, {
       updatedAt: new Date().toISOString(),
@@ -3365,11 +3790,17 @@ class AppStore {
         title: `Task Assigned: ${issue.key}`,
         message: `${activeUser ? activeUser.name : 'Team Lead'} assigned ${issue.type || 'task'} "${issue.title}" to ${devUser ? devUser.name : 'you'}.`,
         type: 'assignment',
+        emailType: 'issue_assignment',
         issueKey: issue.key,
         issueId: issue.id,
+        issueTitle: issue.title,
+        issuePriority: issue.priority,
         projectId: issue.projectId || issue.project_id,
         recipientId: newDevId,
-        recipientEmail: devUser ? devUser.email : null
+        recipientEmail: devUser ? devUser.email : null,
+        recipientName: devUser ? devUser.name : null,
+        link: 'all-issues',
+        actionText: `View ${issue.key}`
       });
     }
 
@@ -3380,11 +3811,17 @@ class AppStore {
         title: `QA Assigned: ${issue.key}`,
         message: `${activeUser ? activeUser.name : 'Team Lead'} assigned ${issue.type || 'ticket'} "${issue.title}" to QA ${qaUser ? qaUser.name : 'you'}.`,
         type: 'qa',
+        emailType: 'qa_handoff',
         issueKey: issue.key,
         issueId: issue.id,
+        issueTitle: issue.title,
+        issuePriority: issue.priority,
         projectId: issue.projectId || issue.project_id,
         recipientId: newQaId,
-        recipientEmail: qaUser ? qaUser.email : null
+        recipientEmail: qaUser ? qaUser.email : null,
+        recipientName: qaUser ? qaUser.name : null,
+        link: 'all-issues',
+        actionText: `View ${issue.key}`
       });
     }
 
@@ -3415,66 +3852,99 @@ class AppStore {
     const issue = this.getIssueById(issueId);
     if (!issue) return null;
 
-    const oldStatus = issue.status;
-    if (oldStatus === newStatus) return issue;
+    // Normalize status names (e.g. Fixed -> Ready for QA, Open -> Backlog, Closed -> Done, In Development -> In Progress, QA -> QA Testing)
+    let normalizedStatus = newStatus;
+    if (newStatus === "Fixed" || newStatus === "fixed") normalizedStatus = "Ready for QA";
+    if (newStatus === "Open" || newStatus === "open") normalizedStatus = "Backlog";
+    if (newStatus === "In Development") normalizedStatus = "In Progress";
+    if (newStatus === "Closed" || newStatus === "closed") normalizedStatus = "Done";
+    if (newStatus === "QA") normalizedStatus = "QA Testing";
 
+    const oldStatus = issue.status;
     const activeUser = this.getActiveUser();
-    issue.status = newStatus;
+    
+    issue.status = normalizedStatus;
     issue.updatedAt = new Date().toISOString();
     issue.updated_at = new Date().toISOString();
 
-    if (newStatus === "Ready for QA" || newStatus === "QA" || newStatus === "QA Testing") {
+    if (normalizedStatus === "Ready for QA" || normalizedStatus === "QA Testing") {
       issue.qaStatus = "Ready for QA";
       issue.qa_status = "Ready for QA";
 
-      // Real-time notification: Ready for QA alert
+      // Real-time notification: Ready for QA alert to QA engineer / lead
+      const qaUser = issue.qaId ? this.getUserById(issue.qaId) : null;
       this.addNotification({
         title: `Ready for QA: ${issue.key}`,
-        message: `[${issue.key}] "${issue.title}" was completed by ${activeUser ? activeUser.name : 'developer'} and submitted for QA verification.`,
+        message: `[${issue.key}] "${issue.title}" was updated to ${normalizedStatus} by ${activeUser ? activeUser.name : 'developer'} and submitted for QA verification.`,
         type: 'qa',
+        emailType: 'qa_handoff',
         issueKey: issue.key,
         issueId: issue.id,
+        issueTitle: issue.title,
+        issuePriority: issue.priority,
         projectId: issue.projectId || issue.project_id,
-        recipientId: issue.qaId
+        recipientId: issue.qaId,
+        recipientEmail: qaUser ? qaUser.email : null,
+        recipientName: qaUser ? qaUser.name : null,
+        link: 'all-issues',
+        actionText: `Verify ${issue.key}`
       });
-    } else if (newStatus === "Done" || newStatus === "Closed") {
+    } else if (normalizedStatus === "Done") {
       issue.qaStatus = "Passed";
       issue.qa_status = "Passed";
 
-      // Real-time notification: Quality Gate Cleared
+      // Real-time notification: Quality Gate Cleared to developer
+      const targetDevId = issue.developerId || issue.assigneeId;
+      const devUser = targetDevId ? this.getUserById(targetDevId) : null;
       this.addNotification({
         title: `Quality Gate Cleared: ${issue.key} ✓`,
         message: `[${issue.key}] "${issue.title}" was verified and marked Done.`,
         type: 'qa',
+        emailType: 'qa_handoff',
         issueKey: issue.key,
         issueId: issue.id,
+        issueTitle: issue.title,
+        issuePriority: issue.priority,
         projectId: issue.projectId || issue.project_id,
-        recipientId: issue.developerId || issue.assigneeId
+        recipientId: targetDevId,
+        recipientEmail: devUser ? devUser.email : null,
+        recipientName: devUser ? devUser.name : null,
+        link: 'all-issues',
+        actionText: `View ${issue.key}`
       });
-    } else if (newStatus === "Reopened") {
+    } else if (normalizedStatus === "Reopened") {
       issue.qaStatus = "Failed";
       issue.qa_status = "Failed";
       issue.reopenCount = (issue.reopenCount || 0) + 1;
       issue.reopen_count = issue.reopenCount;
 
-      // Real-time notification: Defect Reopened
+      // Real-time notification: Defect Reopened to developer
+      const targetDevId = issue.developerId || issue.assigneeId;
+      const devUser = targetDevId ? this.getUserById(targetDevId) : null;
       this.addNotification({
         title: `Defect Reopened: ${issue.key} ✗`,
         message: `[${issue.key}] "${issue.title}" failed QA verification and was reopened for bug fix.`,
         type: 'bug',
+        emailType: 'critical_defect',
         issueKey: issue.key,
         issueId: issue.id,
+        issueTitle: issue.title,
+        issuePriority: issue.priority,
         projectId: issue.projectId || issue.project_id,
-        recipientId: issue.developerId || issue.assigneeId
+        recipientId: targetDevId,
+        recipientEmail: devUser ? devUser.email : null,
+        recipientName: devUser ? devUser.name : null,
+        link: 'all-issues',
+        actionText: `Fix ${issue.key}`
       });
     }
 
     this.addActivity({
       issueKey: issue.key,
       issueId: issue.id,
-      projectId: issue.projectId,
+      projectId: issue.projectId || issue.project_id,
       user: activeUser ? activeUser.name : "Team Member",
-      action: `Moved ${issue.key} status from "${oldStatus}" to "${newStatus}"`,
+      action: `Moved ${issue.key} status from "${oldStatus}" to "${normalizedStatus}"`,
       type: "status_change",
       timestamp: new Date().toISOString()
     });
@@ -3482,27 +3952,52 @@ class AppStore {
     this.saveState();
     this.notify();
 
+    if (window.app && window.app.toast) {
+      window.app.toast("Status Updated", `Moved ${issue.key} to ${normalizedStatus}`, "success");
+    }
+
+    // Persist to Supabase safely using upsert / update fallback
     const sb = (typeof window !== 'undefined' && window.supabaseClient) || (typeof supabaseClient !== 'undefined' ? supabaseClient : null);
     if (sb && sb.from) {
       try {
-        const { error } = await sb.from('issues').update({
-          status: newStatus,
-          qa_status: issue.qaStatus,
-          reopen_count: issue.reopenCount || 0,
+        const payload = {
+          id: issue.id,
+          project_id: issue.projectId || issue.project_id,
+          key: issue.key,
+          title: issue.title,
+          description: issue.description || "",
+          type: issue.type || "Task",
+          status: normalizedStatus,
+          priority: issue.priority || "Medium",
+          qa_status: issue.qaStatus || "Not Tested",
+          assignee_id: issue.assigneeId || issue.assignee_id || null,
+          reporter_id: issue.reporterId || issue.reporter_id || null,
+          developer_id: issue.developerId || issue.developer_id || null,
+          story_points: Number(issue.storyPoints || issue.story_points || 0),
+          sprint_id: issue.sprintId || issue.sprint_id || null,
+          environment: issue.environment || "Staging",
+          release_version: issue.releaseVersion || issue.release_version || "",
+          build_version: issue.buildVersion || issue.build_version || "",
+          reopen_count: Number(issue.reopenCount || issue.reopen_count || 0),
           updated_at: new Date().toISOString()
-        }).eq('id', issue.id);
+        };
+
+        const { error } = await sb.from('issues').upsert(payload);
         if (error) {
-          console.warn("Supabase issue status sync notice:", error.message);
-          // Revert if error
-          issue.status = oldStatus;
-          this.saveState();
-          this.notify();
-          if (window.app && window.app.toast) {
-            window.app.toast("Update Failed", "Unable to update issue status in database.", "error");
+          // If upsert fails (e.g. constraints/columns), try direct update fallback
+          const updateRes = await sb.from('issues').update({
+            status: normalizedStatus,
+            qa_status: issue.qaStatus,
+            reopen_count: issue.reopenCount || 0,
+            updated_at: new Date().toISOString()
+          }).eq('id', issue.id);
+          
+          if (updateRes.error) {
+            console.warn("Supabase issue status sync notice (persisted locally):", updateRes.error.message);
           }
         }
       } catch (err) {
-        console.warn("Supabase status error:", err.message);
+        console.warn("Supabase status sync notice (persisted locally):", err.message);
       }
     }
 
@@ -3710,18 +4205,25 @@ class AppStore {
   // =========================================================================
 
   getReleases(projectId = null) {
-    const pId = projectId || this.data.activeProjectId;
     if (!this.data.releases) this.data.releases = [];
+    const authorizedProjects = this.getAuthorizedProjects() || [];
+    const authorizedProjectIds = new Set(authorizedProjects.map(p => p.id));
     
-    let list = this.data.releases;
-    if (pId) {
-      list = list.filter(r => r.projectId === pId || r.project_id === pId);
+    let list = this.data.releases.filter(r => {
+      const pId = r.projectId || r.project_id;
+      return pId && authorizedProjectIds.has(pId);
+    });
+
+    if (projectId && projectId !== "all") {
+      list = list.filter(r => r.projectId === projectId || r.project_id === projectId);
     }
+
+    list.sort((a, b) => new Date(b.created_at || b.createdAt || 0) - new Date(a.created_at || a.createdAt || 0));
 
     // Enrich releases with latest assessment snapshot & decision
     return list.map(r => {
-      const latestAssessment = this.getLatestReleaseAssessment(r.id);
-      const decisions = this.getReleaseDecisions(r.id);
+      const latestAssessment = this.getLatestReleaseAssessment ? this.getLatestReleaseAssessment(r.id) : null;
+      const decisions = this.getReleaseDecisions ? this.getReleaseDecisions(r.id) : [];
       const latestDecision = decisions.length > 0 ? decisions[0] : null;
       return {
         ...r,
@@ -4126,6 +4628,90 @@ class AppStore {
     return list.length > 0 ? list[list.length - 1] : null;
   }
 
+  getOrComputeProjectQualityAssessment(projectId) {
+    if (!projectId) return null;
+    const project = this.getProjectById(projectId);
+    if (!project) return null;
+
+    const rels = this.getReleases(projectId) || [];
+    let activeRel = rels.find(r => r.status === 'IN_PROGRESS' || r.status === 'READY_FOR_REVIEW') || rels[0] || null;
+
+    if (activeRel) {
+      let assessment = this.getLatestReleaseAssessment(activeRel.id);
+      if (assessment && assessment.score !== null) {
+        return { activeRelease: activeRel, assessment, isLiveCalculated: false };
+      }
+    }
+
+    // Dynamic Live Evaluation for project
+    const pIssues = this.getIssues(projectId) || [];
+    const pTestCases = (this.data.testCases || []).filter(tc => (tc.projectId === projectId || tc.project_id === projectId));
+    const pTestExecs = (this.data.testExecutions || []).filter(te => (te.projectId === projectId || te.project_id === projectId));
+    const settings = this.getProjectQualitySettings(projectId);
+
+    const relObj = activeRel || {
+      id: `live-rel-${project.id}`,
+      projectId: project.id,
+      project_id: project.id,
+      name: `${project.name} Active Stream`,
+      version: project.buildVersion || project.build_version || 'v1.0.0',
+      status: 'IN_PROGRESS'
+    };
+
+    const service = (typeof window !== 'undefined' && window.ReleaseQualityService) || (typeof ReleaseQualityService !== 'undefined' ? ReleaseQualityService : null);
+    if (service && service.evaluateReleaseQuality) {
+      try {
+        const { assessment } = service.evaluateReleaseQuality({
+          release: relObj,
+          project,
+          issues: pIssues,
+          testCases: pTestCases,
+          testExecutions: pTestExecs,
+          settings
+        });
+
+        // If project has no releases at all, auto-provision initial release and assessment
+        if (rels.length === 0) {
+          const newRel = {
+            id: `rel-${project.id}-${Date.now()}`,
+            projectId: project.id,
+            project_id: project.id,
+            workspaceId: project.workspaceId || project.workspace_id,
+            workspace_id: project.workspaceId || project.workspace_id,
+            name: `${project.name} Release`,
+            version: project.buildVersion || project.build_version || 'v1.0.0',
+            description: `Active release stream for ${project.name}`,
+            status: 'IN_PROGRESS',
+            score: assessment.score,
+            qualityStatus: assessment.status,
+            releaseDate: project.dueDate || project.due_date || new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0],
+            release_date: project.dueDate || project.due_date || new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0],
+            createdAt: new Date().toISOString(),
+            created_at: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          };
+          if (!this.data.releases) this.data.releases = [];
+          this.data.releases.push(newRel);
+
+          assessment.release_id = newRel.id;
+          assessment.releaseId = newRel.id;
+          if (!this.data.releaseQualityAssessments) this.data.releaseQualityAssessments = [];
+          this.data.releaseQualityAssessments.push(assessment);
+          this.saveState();
+
+          return { activeRelease: newRel, assessment, isLiveCalculated: true };
+        }
+
+        return { activeRelease: relObj, assessment, isLiveCalculated: true };
+      } catch (err) {
+        console.warn("Quality evaluation error:", err);
+      }
+    }
+
+    return null;
+  }
+
   getReleaseRiskFactors(assessmentId) {
     if (!assessmentId) return [];
     if (!this.data.releaseRiskFactors) this.data.releaseRiskFactors = [];
@@ -4273,50 +4859,1511 @@ class AppStore {
     return links.map(l => this.getIssueById(l.issue_id || l.issueId)).filter(Boolean);
   }
 
-  // ==========================================
-  // Comments
-  // ==========================================
-  addComment(issueId, commentText) {
+  // =========================================================================
+  // PULSEWAVE V2 — ISSUE DETAIL, WORKFLOW, COMMENTS & QA EVIDENCE SUBSYSTEM
+  // =========================================================================
+
+  /**
+   * 1. ISSUE COMMENTS & THREADED DISCUSSIONS
+   */
+  getIssueComments(issueId) {
+    if (!issueId) return [];
+    if (!this.data.issueComments) this.data.issueComments = [];
+    if (!this.data.issueCommentReactions) this.data.issueCommentReactions = [];
+    if (!this.data.issueCommentMentions) this.data.issueCommentMentions = [];
+
     const issue = this.getIssueById(issueId);
-    if (!issue || !commentText.trim()) return;
-
     const activeUser = this.getActiveUser();
-    if (!issue.comments) issue.comments = [];
 
-    const newComment = {
-      id: `comm-${Date.now()}`,
-      authorId: activeUser.id,
-      text: commentText.trim(),
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    };
+    // Fetch relational comments
+    let comments = this.data.issueComments.filter(c => (c.issue_id === issueId || c.issueId === issueId) && !c.deleted_at);
 
-    issue.comments.push(newComment);
-    issue.updatedAt = new Date().toLocaleString();
+    // Backward compatibility: If no relational comments, include legacy issue.comments array
+    if (comments.length === 0 && issue && Array.isArray(issue.comments) && issue.comments.length > 0) {
+      issue.comments.forEach(lc => {
+        const legacyId = lc.id || `comm-leg-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`;
+        if (!this.data.issueComments.some(c => c.id === legacyId)) {
+          this.data.issueComments.push({
+            id: legacyId,
+            issue_id: issue.id,
+            issueId: issue.id,
+            project_id: issue.projectId || issue.project_id,
+            projectId: issue.projectId || issue.project_id,
+            author_id: lc.authorId || (activeUser ? activeUser.id : null),
+            authorId: lc.authorId || (activeUser ? activeUser.id : null),
+            body: lc.text || "",
+            created_at: lc.timestamp ? new Date().toISOString() : new Date().toISOString()
+          });
+        }
+      });
+      comments = this.data.issueComments.filter(c => (c.issue_id === issueId || c.issueId === issueId) && !c.deleted_at);
+    }
 
-    this.addActivity({
-      issueKey: issue.key,
-      user: activeUser.name,
-      action: `Added comment on ${issue.key}: "${commentText.slice(0, 40)}${commentText.length > 40 ? '...' : ''}"`
+    // Enrich comments with author, reactions, and threaded structure
+    const enriched = comments.map(c => {
+      const authorId = c.author_id || c.authorId;
+      const author = this.getUserById(authorId) || { id: authorId, name: "Team Member", initials: "TM", color: "bg-slate-700" };
+      const commentId = c.id;
+      
+      // Get reactions
+      const reactions = (this.data.issueCommentReactions || []).filter(r => (r.comment_id === commentId || r.commentId === commentId));
+      const reactionSummary = {};
+      reactions.forEach(r => {
+        if (!reactionSummary[r.reaction]) {
+          reactionSummary[r.reaction] = { count: 0, users: [], userReacted: false };
+        }
+        reactionSummary[r.reaction].count++;
+        reactionSummary[r.reaction].users.push(r.user_id || r.userId);
+        if (activeUser && (r.user_id === activeUser.id || r.userId === activeUser.id)) {
+          reactionSummary[r.reaction].userReacted = true;
+        }
+      });
+
+      return {
+        ...c,
+        id: c.id,
+        issueId: c.issue_id || c.issueId,
+        author,
+        authorId,
+        body: c.body,
+        parentCommentId: c.parent_comment_id || c.parentCommentId || null,
+        editedAt: c.edited_at || c.editedAt || null,
+        createdAt: c.created_at || c.createdAt || new Date().toISOString(),
+        relativeTime: this.formatRelativeTime(c.created_at || c.createdAt),
+        reactions: reactionSummary,
+        rawReactions: reactions
+      };
     });
 
-    // Real-time notification: Comment on Issue
+    // Build hierarchical threads (parents with nested replies)
+    const rootComments = enriched.filter(c => !c.parentCommentId).sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+    const replies = enriched.filter(c => c.parentCommentId);
+
+    rootComments.forEach(root => {
+      root.replies = replies.filter(r => r.parentCommentId === root.id).sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+    });
+
+    return rootComments;
+  }
+
+  async addIssueComment(issueId, { text, parentCommentId = null, attachments = [], mentions = [] }) {
+    const issue = this.getIssueById(issueId);
+    if (!issue || !text || !text.trim()) return null;
+
+    const activeUser = this.getActiveUser();
+    const projectId = issue.projectId || issue.project_id;
+    const commentId = `comm-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
+    const now = new Date().toISOString();
+
+    const newComment = {
+      id: commentId,
+      issue_id: issue.id,
+      issueId: issue.id,
+      project_id: projectId,
+      projectId: projectId,
+      author_id: activeUser ? activeUser.id : null,
+      authorId: activeUser ? activeUser.id : null,
+      parent_comment_id: parentCommentId || null,
+      parentCommentId: parentCommentId || null,
+      body: text.trim(),
+      created_at: now,
+      createdAt: now,
+      updated_at: now,
+      updatedAt: now
+    };
+
+    if (!this.data.issueComments) this.data.issueComments = [];
+    this.data.issueComments.push(newComment);
+
+    // Keep legacy issue.comments array in sync
+    if (!issue.comments) issue.comments = [];
+    issue.comments.push({
+      id: commentId,
+      authorId: activeUser ? activeUser.id : null,
+      text: text.trim(),
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    });
+    issue.updatedAt = now;
+
+    // Process mentions
+    if (Array.isArray(mentions) && mentions.length > 0) {
+      if (!this.data.issueCommentMentions) this.data.issueCommentMentions = [];
+      mentions.forEach(mUserId => {
+        this.data.issueCommentMentions.push({
+          id: `men-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+          comment_id: commentId,
+          commentId: commentId,
+          mentioned_user_id: mUserId,
+          mentionedUserId: mUserId,
+          created_at: now
+        });
+
+        // Notify mentioned user
+        if (mUserId !== (activeUser ? activeUser.id : null)) {
+          const mentionedUser = this.getUserById(mUserId);
+          this.addNotification({
+            title: `Mentioned on ${issue.key}`,
+            message: `${activeUser ? activeUser.name : 'Teammate'} mentioned you in a comment on ${issue.key}: "${text.slice(0, 45)}..."`,
+            type: 'mention',
+            issueKey: issue.key,
+            issueId: issue.id,
+            projectId: projectId,
+            recipientId: mUserId,
+            recipientEmail: mentionedUser ? mentionedUser.email : null
+          });
+        }
+      });
+    }
+
+    // Record audit activity
+    this.recordIssueActivity(issue.id, 'comment_added', {
+      commentId,
+      textPreview: text.slice(0, 60),
+      isReply: !!parentCommentId
+    });
+
+    // Notify issue assignee / developer / QA
     const targetRecipient = issue.developerId || issue.assigneeId || issue.qaId;
-    if (targetRecipient && targetRecipient !== activeUser.id) {
+    if (targetRecipient && targetRecipient !== (activeUser ? activeUser.id : null)) {
       const recUser = this.getUserById(targetRecipient);
       this.addNotification({
         title: `Comment on ${issue.key}`,
-        message: `${activeUser ? activeUser.name : 'Teammate'} commented: "${commentText.slice(0, 45)}${commentText.length > 45 ? '...' : ''}"`,
+        message: `${activeUser ? activeUser.name : 'Teammate'} commented on ${issue.key}: "${text.slice(0, 45)}..."`,
         type: 'comment',
         issueKey: issue.key,
         issueId: issue.id,
-        projectId: issue.projectId || issue.project_id,
+        projectId: projectId,
         recipientId: targetRecipient,
         recipientEmail: recUser ? recUser.email : null
       });
     }
 
     this.saveState();
+    this.notify();
+
+    // Async Supabase Sync
+    const sb = (typeof window !== 'undefined' && window.supabaseClient) || (typeof supabaseClient !== 'undefined' ? supabaseClient : null);
+    if (sb && sb.from && projectId) {
+      (async () => {
+        try {
+          await sb.from('issue_comments').insert({
+            id: newComment.id,
+            issue_id: newComment.issue_id,
+            project_id: newComment.project_id,
+            author_id: newComment.author_id,
+            parent_comment_id: newComment.parent_comment_id,
+            body: newComment.body,
+            created_at: newComment.created_at,
+            updated_at: newComment.updated_at
+          });
+        } catch (err) {
+          console.warn("Supabase issue comment sync notice:", err.message);
+        }
+      })();
+    }
+
     return newComment;
+  }
+
+  addComment(issueId, commentText) {
+    return this.addIssueComment(issueId, { text: commentText });
+  }
+
+  async editIssueComment(commentId, newText) {
+    if (!commentId || !newText || !newText.trim()) return false;
+    if (!this.data.issueComments) this.data.issueComments = [];
+
+    const comment = this.data.issueComments.find(c => c.id === commentId);
+    if (!comment) return false;
+
+    const activeUser = this.getActiveUser();
+    const isAuthor = (comment.author_id || comment.authorId) === (activeUser ? activeUser.id : null);
+    const isPM = activeUser && (activeUser.role?.includes("PM") || activeUser.role?.includes("Manager") || activeUser.role?.includes("Owner"));
+
+    if (!isAuthor && !isPM) {
+      throw new Error("Permission Denied: You can only edit your own comments.");
+    }
+
+    const now = new Date().toISOString();
+    comment.body = newText.trim();
+    comment.edited_at = now;
+    comment.editedAt = now;
+    comment.updated_at = now;
+
+    this.saveState();
+    this.notify();
+
+    const sb = (typeof window !== 'undefined' && window.supabaseClient) || (typeof supabaseClient !== 'undefined' ? supabaseClient : null);
+    if (sb && sb.from) {
+      try {
+        await sb.from('issue_comments').update({
+          body: comment.body,
+          edited_at: now,
+          updated_at: now
+        }).eq('id', commentId);
+      } catch (err) {
+        console.warn("Supabase comment edit notice:", err.message);
+      }
+    }
+
+    return true;
+  }
+
+  async deleteIssueComment(commentId) {
+    if (!commentId) return false;
+    if (!this.data.issueComments) this.data.issueComments = [];
+
+    const comment = this.data.issueComments.find(c => c.id === commentId);
+    if (!comment) return false;
+
+    const activeUser = this.getActiveUser();
+    const isAuthor = (comment.author_id || comment.authorId) === (activeUser ? activeUser.id : null);
+    const isPM = activeUser && (activeUser.role?.includes("PM") || activeUser.role?.includes("Manager") || activeUser.role?.includes("Owner"));
+
+    if (!isAuthor && !isPM) {
+      throw new Error("Permission Denied: You can only delete your own comments.");
+    }
+
+    const now = new Date().toISOString();
+    comment.deleted_at = now;
+    comment.deletedAt = now;
+
+    // Filter out of local active set if no children
+    const hasReplies = this.data.issueComments.some(c => (c.parent_comment_id === commentId || c.parentCommentId === commentId) && !c.deleted_at);
+    if (!hasReplies) {
+      this.data.issueComments = this.data.issueComments.filter(c => c.id !== commentId);
+    }
+
+    this.saveState();
+    this.notify();
+
+    const sb = (typeof window !== 'undefined' && window.supabaseClient) || (typeof supabaseClient !== 'undefined' ? supabaseClient : null);
+    if (sb && sb.from) {
+      try {
+        await sb.from('issue_comments').delete().eq('id', commentId);
+      } catch (err) {
+        console.warn("Supabase comment delete notice:", err.message);
+      }
+    }
+
+    return true;
+  }
+
+  async toggleCommentReaction(commentId, reactionEmoji) {
+    if (!commentId || !reactionEmoji) return false;
+    if (!this.data.issueCommentReactions) this.data.issueCommentReactions = [];
+
+    const activeUser = this.getActiveUser();
+    if (!activeUser) return false;
+
+    const existingIdx = this.data.issueCommentReactions.findIndex(r => 
+      (r.comment_id === commentId || r.commentId === commentId) && 
+      (r.user_id === activeUser.id || r.userId === activeUser.id) && 
+      r.reaction === reactionEmoji
+    );
+
+    const sb = (typeof window !== 'undefined' && window.supabaseClient) || (typeof supabaseClient !== 'undefined' ? supabaseClient : null);
+
+    if (existingIdx !== -1) {
+      const removed = this.data.issueCommentReactions.splice(existingIdx, 1)[0];
+      this.saveState();
+      this.notify();
+
+      if (sb && sb.from) {
+        try {
+          await sb.from('issue_comment_reactions').delete().eq('comment_id', commentId).eq('user_id', activeUser.id).eq('reaction', reactionEmoji);
+        } catch (err) {
+          console.warn("Supabase reaction remove notice:", err.message);
+        }
+      }
+      return false; // Removed
+    } else {
+      const newReaction = {
+        id: `react-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+        comment_id: commentId,
+        commentId: commentId,
+        user_id: activeUser.id,
+        userId: activeUser.id,
+        reaction: reactionEmoji,
+        created_at: new Date().toISOString()
+      };
+      this.data.issueCommentReactions.push(newReaction);
+      this.saveState();
+      this.notify();
+
+      if (sb && sb.from) {
+        try {
+          await sb.from('issue_comment_reactions').insert({
+            id: newReaction.id,
+            comment_id: commentId,
+            user_id: activeUser.id,
+            reaction: reactionEmoji
+          });
+        } catch (err) {
+          console.warn("Supabase reaction add notice:", err.message);
+        }
+      }
+      return true; // Added
+    }
+  }
+
+  /**
+   * 2. ISSUE ATTACHMENTS & QA EVIDENCE
+   */
+  getIssueAttachments(issueId) {
+    if (!issueId) return [];
+    if (!this.data.issueAttachments) this.data.issueAttachments = [];
+    return this.data.issueAttachments
+      .filter(a => a.issue_id === issueId || a.issueId === issueId)
+      .map(a => {
+        const uploader = this.getUserById(a.uploaded_by || a.uploadedBy) || { name: "Team Member", initials: "TM", color: "bg-slate-700" };
+        return {
+          ...a,
+          id: a.id,
+          fileName: a.file_name || a.fileName,
+          storagePath: a.storage_path || a.storagePath,
+          mimeType: a.mime_type || a.mimeType || "application/octet-stream",
+          fileSize: Number(a.file_size || a.fileSize || 0),
+          uploadedBy: uploader,
+          createdAt: a.created_at || a.createdAt || new Date().toISOString(),
+          relativeTime: this.formatRelativeTime(a.created_at || a.createdAt)
+        };
+      })
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  }
+
+  getQaEvidence(issueId) {
+    if (!issueId) return [];
+    if (!this.data.qaEvidence) this.data.qaEvidence = [];
+    const attachments = this.getIssueAttachments(issueId);
+    const attachmentMap = new Map(attachments.map(a => [a.id, a]));
+
+    return this.data.qaEvidence
+      .filter(e => e.issue_id === issueId || e.issueId === issueId)
+      .map(e => {
+        const attach = attachmentMap.get(e.attachment_id || e.attachmentId) || null;
+        const uploader = this.getUserById(e.uploaded_by || e.uploadedBy) || { name: "QA Engineer", initials: "QA", color: "bg-purple-700" };
+        return {
+          ...e,
+          id: e.id,
+          verificationId: e.verification_id || e.verificationId,
+          attachment: attach,
+          environment: e.environment || "Staging",
+          buildVersion: e.build_version || e.buildVersion || "v2.4.1",
+          evidenceType: e.evidence_type || e.evidenceType || (attach?.mimeType?.includes("video") ? "Video" : attach?.mimeType?.includes("image") ? "Screenshot" : "Log / Document"),
+          result: e.result || "PASS",
+          uploadedBy: uploader,
+          createdAt: e.created_at || e.createdAt || new Date().toISOString(),
+          relativeTime: this.formatRelativeTime(e.created_at || e.createdAt)
+        };
+      })
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  }
+
+  async uploadIssueAttachment(issueId, { fileName, storagePath = null, fileData = null, mimeType = null, fileSize = 0, isQaEvidence = false, qaMeta = {} }) {
+    const issue = this.getIssueById(issueId);
+    if (!issue || !fileName) return null;
+
+    const activeUser = this.getActiveUser();
+    const projectId = issue.projectId || issue.project_id;
+    const attachmentId = `att-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
+    const now = new Date().toISOString();
+
+    // Auto-derive mime type if missing
+    let resolvedMime = mimeType;
+    if (!resolvedMime) {
+      const ext = fileName.split('.').pop().toLowerCase();
+      if (['png', 'jpg', 'jpeg', 'webp', 'gif'].includes(ext)) resolvedMime = `image/${ext === 'jpg' ? 'jpeg' : ext}`;
+      else if (['mp4', 'webm', 'mov'].includes(ext)) resolvedMime = `video/${ext}`;
+      else if (ext === 'pdf') resolvedMime = 'application/pdf';
+      else if (['json', 'log', 'txt', 'csv'].includes(ext)) resolvedMime = 'text/plain';
+      else resolvedMime = 'application/octet-stream';
+    }
+
+    const resolvedStoragePath = storagePath || `projects/${projectId}/issues/${issue.id}/${attachmentId}-${fileName.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
+
+    // Upload to Supabase Storage if binary file data is provided
+    const sb = (typeof window !== 'undefined' && window.supabaseClient) || (typeof supabaseClient !== 'undefined' ? supabaseClient : null);
+    if (sb && sb.storage && fileData) {
+      try {
+        await sb.storage.from('project-attachments').upload(resolvedStoragePath, fileData, {
+          contentType: resolvedMime,
+          upsert: true
+        });
+      } catch (err) {
+        console.warn("Supabase storage upload notice:", err.message);
+      }
+    }
+
+    const newAttachment = {
+      id: attachmentId,
+      issue_id: issue.id,
+      issueId: issue.id,
+      project_id: projectId,
+      projectId: projectId,
+      uploaded_by: activeUser ? activeUser.id : null,
+      uploadedBy: activeUser ? activeUser.id : null,
+      file_name: fileName,
+      fileName: fileName,
+      storage_path: resolvedStoragePath,
+      storagePath: resolvedStoragePath,
+      mime_type: resolvedMime,
+      mimeType: resolvedMime,
+      file_size: fileSize || (fileData ? fileData.size || 1024 : 1024),
+      fileSize: fileSize || (fileData ? fileData.size || 1024 : 1024),
+      created_at: now,
+      createdAt: now
+    };
+
+    if (!this.data.issueAttachments) this.data.issueAttachments = [];
+    this.data.issueAttachments.unshift(newAttachment);
+
+    // If QA Evidence, create relational qa_evidence record
+    let newQaEvidence = null;
+    if (isQaEvidence) {
+      const evidenceId = `qae-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
+      newQaEvidence = {
+        id: evidenceId,
+        issue_id: issue.id,
+        issueId: issue.id,
+        verification_id: qaMeta.verificationId || null,
+        verificationId: qaMeta.verificationId || null,
+        project_id: projectId,
+        projectId: projectId,
+        uploaded_by: activeUser ? activeUser.id : null,
+        uploadedBy: activeUser ? activeUser.id : null,
+        attachment_id: attachmentId,
+        attachmentId: attachmentId,
+        environment: qaMeta.environment || issue.environment || "Staging",
+        build_version: qaMeta.buildVersion || issue.buildVersion || "v2.4.1",
+        evidence_type: qaMeta.evidenceType || (resolvedMime.includes("video") ? "Video" : resolvedMime.includes("image") ? "Screenshot" : "Log / Document"),
+        result: qaMeta.result || issue.qaStatus || "PASS",
+        created_at: now,
+        createdAt: now
+      };
+
+      if (!this.data.qaEvidence) this.data.qaEvidence = [];
+      this.data.qaEvidence.unshift(newQaEvidence);
+
+      // Keep legacy string preview in sync
+      issue.qaEvidence = `${fileName} (${newQaEvidence.evidence_type})`;
+    }
+
+    // Record activity
+    this.recordIssueActivity(issue.id, isQaEvidence ? 'qa_evidence_uploaded' : 'attachment_uploaded', {
+      fileName,
+      mimeType: resolvedMime,
+      fileSize,
+      isQaEvidence
+    });
+
+    this.saveState();
+    this.notify();
+
+    // Persist to Supabase
+    if (sb && sb.from && projectId) {
+      (async () => {
+        try {
+          await sb.from('issue_attachments').insert({
+            id: newAttachment.id,
+            issue_id: newAttachment.issue_id,
+            project_id: newAttachment.project_id,
+            uploaded_by: newAttachment.uploaded_by,
+            file_name: newAttachment.file_name,
+            storage_path: newAttachment.storage_path,
+            mime_type: newAttachment.mime_type,
+            file_size: newAttachment.file_size,
+            created_at: newAttachment.created_at
+          });
+
+          if (newQaEvidence) {
+            await sb.from('qa_evidence').insert({
+              id: newQaEvidence.id,
+              issue_id: newQaEvidence.issue_id,
+              verification_id: newQaEvidence.verification_id,
+              project_id: newQaEvidence.project_id,
+              uploaded_by: newQaEvidence.uploaded_by,
+              attachment_id: newQaEvidence.attachment_id,
+              environment: newQaEvidence.environment,
+              build_version: newQaEvidence.build_version,
+              evidence_type: newQaEvidence.evidence_type,
+              result: newQaEvidence.result,
+              created_at: newQaEvidence.created_at
+            });
+          }
+        } catch (err) {
+          console.warn("Supabase attachment insert notice:", err.message);
+        }
+      })();
+    }
+
+    return { attachment: newAttachment, qaEvidence: newQaEvidence };
+  }
+
+  async deleteIssueAttachment(attachmentId) {
+    if (!attachmentId) return false;
+    if (!this.data.issueAttachments) this.data.issueAttachments = [];
+
+    const attach = this.data.issueAttachments.find(a => a.id === attachmentId);
+    if (!attach) return false;
+
+    const activeUser = this.getActiveUser();
+    const isOwner = (attach.uploaded_by || attach.uploadedBy) === (activeUser ? activeUser.id : null);
+    const isPM = activeUser && (activeUser.role?.includes("PM") || activeUser.role?.includes("Manager") || activeUser.role?.includes("Owner"));
+
+    if (!isOwner && !isPM) {
+      throw new Error("Permission Denied: Only the uploader or a Project Manager can delete attachments.");
+    }
+
+    this.data.issueAttachments = this.data.issueAttachments.filter(a => a.id !== attachmentId);
+    if (this.data.qaEvidence) {
+      this.data.qaEvidence = this.data.qaEvidence.filter(e => (e.attachment_id !== attachmentId && e.attachmentId !== attachmentId));
+    }
+
+    this.saveState();
+    this.notify();
+
+    const sb = (typeof window !== 'undefined' && window.supabaseClient) || (typeof supabaseClient !== 'undefined' ? supabaseClient : null);
+    if (sb && sb.from) {
+      try {
+        await sb.from('issue_attachments').delete().eq('id', attachmentId);
+        await sb.from('qa_evidence').delete().eq('attachment_id', attachmentId);
+        if (sb.storage && attach.storage_path) {
+          await sb.storage.from('project-attachments').remove([attach.storage_path]);
+        }
+      } catch (err) {
+        console.warn("Supabase attachment delete notice:", err.message);
+      }
+    }
+
+    return true;
+  }
+
+  /**
+   * 3. QA VERIFICATIONS & IMMUTABLE HISTORY
+   */
+  getQaVerifications(issueId) {
+    if (!issueId) return [];
+    if (!this.data.qaVerifications) this.data.qaVerifications = [];
+    const issue = this.getIssueById(issueId);
+
+    let verifications = this.data.qaVerifications
+      .filter(v => v.issue_id === issueId || v.issueId === issueId)
+      .map(v => {
+        const qaUser = this.getUserById(v.qa_user_id || v.qaUserId) || { name: "QA Engineer", initials: "QA", color: "bg-purple-700" };
+        const evidenceItems = (this.data.qaEvidence || []).filter(e => (e.verification_id === v.id || e.verificationId === v.id));
+        return {
+          ...v,
+          id: v.id,
+          attemptNumber: v.attempt_number || v.attemptNumber || 1,
+          qaUser,
+          qaUserId: v.qa_user_id || v.qaUserId,
+          environment: v.environment || "Staging",
+          buildVersion: v.build_version || v.buildVersion || "v2.4.1",
+          result: v.result || "PASS",
+          failureReason: v.failure_reason || v.failureReason || "",
+          expectedResult: v.expected_result || v.expectedResult || "",
+          actualResult: v.actual_result || v.actualResult || "",
+          notes: v.notes || "",
+          evidenceItems,
+          createdAt: v.created_at || v.createdAt || new Date().toISOString(),
+          relativeTime: this.formatRelativeTime(v.created_at || v.createdAt)
+        };
+      })
+      .sort((a, b) => (b.attemptNumber || 0) - (a.attemptNumber || 0));
+
+    // Backward compatibility with legacy reopenHistory array
+    if (verifications.length === 0 && issue && Array.isArray(issue.reopenHistory) && issue.reopenHistory.length > 0) {
+      issue.reopenHistory.forEach((h, idx) => {
+        verifications.push({
+          id: `v-leg-${idx}`,
+          attemptNumber: h.attempt || (idx + 1),
+          qaUser: { name: h.qa || "QA Engineer", initials: "QA", color: "bg-purple-700" },
+          environment: issue.environment || "Staging",
+          buildVersion: issue.buildVersion || "v2.4.0",
+          result: "FAIL",
+          failureReason: h.reason || "Defect verification failed",
+          expectedResult: issue.expectedResult || "",
+          actualResult: issue.actualResult || "",
+          notes: h.reason || "",
+          createdAt: h.date || new Date().toISOString(),
+          relativeTime: h.date || "Past attempt"
+        });
+      });
+    }
+
+    return verifications;
+  }
+
+  async recordQaVerificationAttempt(issueId, { result, failureReason = "", expectedResult = "", actualResult = "", notes = "", environment = "Staging", buildVersion = "v2.4.1", evidenceAttachments = [] }) {
+    const issue = this.getIssueById(issueId);
+    if (!issue) return null;
+
+    const activeUser = this.getActiveUser();
+    const projectId = issue.projectId || issue.project_id;
+    const now = new Date().toISOString();
+
+    const existingVerifications = this.getQaVerifications(issue.id);
+    const nextAttemptNumber = existingVerifications.length + 1;
+    const verificationId = `qav-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
+
+    const normalizedResult = (result || "PASS").toUpperCase(); // PASS, FAIL, BLOCKED, RETEST
+
+    const verificationRecord = {
+      id: verificationId,
+      issue_id: issue.id,
+      issueId: issue.id,
+      project_id: projectId,
+      projectId: projectId,
+      qa_user_id: activeUser ? activeUser.id : (issue.qaId || null),
+      qaUserId: activeUser ? activeUser.id : (issue.qaId || null),
+      environment: environment || issue.environment || "Staging",
+      build_version: buildVersion || issue.buildVersion || "v2.4.1",
+      result: normalizedResult,
+      failure_reason: failureReason || (normalizedResult === "FAIL" ? "QA Verification Failed" : null),
+      expected_result: expectedResult || issue.expectedResult || null,
+      actual_result: actualResult || issue.actualResult || null,
+      notes: notes || "",
+      attempt_number: nextAttemptNumber,
+      attemptNumber: nextAttemptNumber,
+      completed_at: now,
+      created_at: now,
+      createdAt: now
+    };
+
+    if (!this.data.qaVerifications) this.data.qaVerifications = [];
+    this.data.qaVerifications.unshift(verificationRecord);
+
+    // Link uploaded evidence attachments
+    if (Array.isArray(evidenceAttachments) && evidenceAttachments.length > 0) {
+      for (const att of evidenceAttachments) {
+        if (att.id) {
+          const evidenceId = `qae-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
+          const evRec = {
+            id: evidenceId,
+            issue_id: issue.id,
+            issueId: issue.id,
+            verification_id: verificationId,
+            verificationId: verificationId,
+            project_id: projectId,
+            projectId: projectId,
+            uploaded_by: activeUser ? activeUser.id : null,
+            uploadedBy: activeUser ? activeUser.id : null,
+            attachment_id: att.id,
+            attachmentId: att.id,
+            environment: verificationRecord.environment,
+            build_version: verificationRecord.build_version,
+            evidence_type: att.mimeType?.includes("video") ? "Video" : att.mimeType?.includes("image") ? "Screenshot" : "Document",
+            result: normalizedResult,
+            created_at: now,
+            createdAt: now
+          };
+          if (!this.data.qaEvidence) this.data.qaEvidence = [];
+          this.data.qaEvidence.unshift(evRec);
+        }
+      }
+    }
+
+    // Update Issue Quality State based on QA Verdict
+    issue.environment = environment;
+    issue.buildVersion = buildVersion;
+    issue.qaNotes = notes;
+    issue.updatedAt = now;
+
+    if (normalizedResult === "PASS") {
+      issue.qaStatus = "Passed";
+      issue.qa_status = "Passed";
+      issue.status = issue.type === "Bug" ? "Closed" : "Done";
+
+      this.addNotification({
+        title: `Quality Gate Cleared: ${issue.key} ✓`,
+        message: `[${issue.key}] "${issue.title}" QA verification PASSED by ${activeUser ? activeUser.name : 'QA Engineer'} on ${environment} (${buildVersion}).`,
+        type: 'qa',
+        issueKey: issue.key,
+        issueId: issue.id,
+        projectId: projectId,
+        recipientId: issue.developerId || issue.assigneeId
+      });
+    } else if (normalizedResult === "FAIL") {
+      issue.qaStatus = "Failed";
+      issue.qa_status = "Failed";
+      issue.status = "Reopened";
+      issue.reopenCount = (issue.reopenCount || 0) + 1;
+      issue.reopen_count = issue.reopenCount;
+
+      if (!issue.reopenHistory) issue.reopenHistory = [];
+      issue.reopenHistory.unshift({
+        attempt: nextAttemptNumber,
+        qa: activeUser ? activeUser.name : "QA Engineer",
+        reason: failureReason || notes || "Verification failed on target environment",
+        date: new Date().toLocaleDateString()
+      });
+
+      this.addNotification({
+        title: `Defect Reopened: ${issue.key} ✗`,
+        message: `[${issue.key}] "${issue.title}" failed QA verification on ${environment} (${buildVersion}): ${failureReason || notes}`,
+        type: 'bug',
+        issueKey: issue.key,
+        issueId: issue.id,
+        projectId: projectId,
+        recipientId: issue.developerId || issue.assigneeId
+      });
+    } else if (normalizedResult === "BLOCKED") {
+      issue.qaStatus = "Blocked";
+      issue.qa_status = "Blocked";
+      this.addNotification({
+        title: `Testing Blocked: ${issue.key} ⚠`,
+        message: `[${issue.key}] "${issue.title}" is BLOCKED in QA on ${environment}: ${failureReason || notes}`,
+        type: 'warning',
+        issueKey: issue.key,
+        issueId: issue.id,
+        projectId: projectId,
+        recipientId: issue.developerId || issue.assigneeId
+      });
+    } else if (normalizedResult === "RETEST") {
+      issue.qaStatus = "Retesting";
+      issue.qa_status = "Retesting";
+      issue.status = "QA Testing";
+    }
+
+    // Record audit activity
+    this.recordIssueActivity(issue.id, 'qa_verification_recorded', {
+      attemptNumber: nextAttemptNumber,
+      result: normalizedResult,
+      environment,
+      buildVersion,
+      notes: notes.slice(0, 80)
+    });
+
+    this.saveState();
+    this.notify();
+
+    // Async Supabase Sync
+    const sb = (typeof window !== 'undefined' && window.supabaseClient) || (typeof supabaseClient !== 'undefined' ? supabaseClient : null);
+    if (sb && sb.from && projectId) {
+      (async () => {
+        try {
+          await sb.from('qa_verifications').insert({
+            id: verificationRecord.id,
+            issue_id: verificationRecord.issue_id,
+            project_id: verificationRecord.project_id,
+            qa_user_id: verificationRecord.qa_user_id,
+            environment: verificationRecord.environment,
+            build_version: verificationRecord.build_version,
+            result: verificationRecord.result,
+            failure_reason: verificationRecord.failure_reason,
+            expected_result: verificationRecord.expected_result,
+            actual_result: verificationRecord.actual_result,
+            notes: verificationRecord.notes,
+            attempt_number: verificationRecord.attempt_number,
+            completed_at: verificationRecord.completed_at,
+            created_at: verificationRecord.created_at
+          });
+
+          await sb.from('issues').update({
+            status: issue.status,
+            qa_status: issue.qaStatus,
+            reopen_count: issue.reopenCount || 0,
+            environment: issue.environment,
+            build_version: issue.buildVersion,
+            updated_at: now
+          }).eq('id', issue.id);
+        } catch (err) {
+          console.warn("Supabase QA verification insert notice:", err.message);
+        }
+      })();
+    }
+
+    return verificationRecord;
+  }
+
+  /**
+   * 4. CONTROLLED WORKFLOW TRANSITIONS ENGINE
+   */
+  getValidWorkflowTransitions(issue) {
+    if (!issue) return [];
+    const current = (issue.status || "Backlog").toLowerCase().trim();
+    const isBug = (issue.type || "").toLowerCase() === "bug";
+
+    const allStatuses = [
+      { id: "Backlog", label: "Backlog / Open", requiresModal: false },
+      { id: "To Do", label: "To Do", requiresModal: false },
+      { id: "In Progress", label: "In Progress / Dev", requiresModal: false },
+      { id: "Ready for QA", label: "Ready for QA (Fixed)", requiresModal: true, prompt: "Provide developer notes and build target" },
+      { id: "QA Testing", label: "QA Testing", requiresModal: false },
+      { id: "Done", label: isBug ? "Closed / Verified" : "Done / Verified", requiresModal: true, prompt: "QA Verification sign-off required" },
+      { id: "Reopened", label: "Reopened (Fix Required)", requiresModal: true, prompt: "QA failure reason & actual result required" }
+    ];
+
+    return allStatuses;
+  }
+
+  async executeWorkflowTransition(issueId, targetStatus, transitionData = {}) {
+    const issue = this.getIssueById(issueId);
+    if (!issue) return null;
+
+    const oldStatus = issue.status;
+    const activeUser = this.getActiveUser();
+    const now = new Date().toISOString();
+
+    // If moving to Ready for QA: capture developer notes and build version
+    if (targetStatus === "Ready for QA") {
+      if (transitionData.developerNotes) {
+        issue.developerNotes = transitionData.developerNotes;
+      }
+      if (transitionData.buildVersion) {
+        issue.buildVersion = transitionData.buildVersion;
+      }
+      if (transitionData.evidenceFile) {
+        await this.uploadIssueAttachment(issue.id, {
+          fileName: transitionData.evidenceFile.name,
+          fileData: transitionData.evidenceFile,
+          mimeType: transitionData.evidenceFile.type,
+          fileSize: transitionData.evidenceFile.size,
+          isQaEvidence: false
+        });
+      }
+    }
+
+    // If moving to Done / PASS via QA verification
+    if (targetStatus === "Done" || targetStatus === "Closed") {
+      if (transitionData.isQaSignoff) {
+        await this.recordQaVerificationAttempt(issue.id, {
+          result: "PASS",
+          notes: transitionData.qaNotes || "Quality Gate Cleared",
+          environment: transitionData.environment || issue.environment || "Staging",
+          buildVersion: transitionData.buildVersion || issue.buildVersion || "v2.4.1"
+        });
+        return issue;
+      }
+    }
+
+    // If moving to Reopened / FAIL via QA verification
+    if (targetStatus === "Reopened") {
+      if (transitionData.isQaSignoff) {
+        await this.recordQaVerificationAttempt(issue.id, {
+          result: "FAIL",
+          failureReason: transitionData.failureReason || "QA verification failed",
+          expectedResult: transitionData.expectedResult || issue.expectedResult,
+          actualResult: transitionData.actualResult || issue.actualResult,
+          notes: transitionData.qaNotes || "",
+          environment: transitionData.environment || issue.environment || "Staging",
+          buildVersion: transitionData.buildVersion || issue.buildVersion || "v2.4.1"
+        });
+        return issue;
+      }
+    }
+
+    return this.updateIssueStatus(issueId, targetStatus);
+  }
+
+  /**
+   * 5. ISSUE CHECKLISTS & ITEMS
+   */
+  getIssueChecklists(issueId) {
+    if (!issueId) return [];
+    if (!this.data.issueChecklists) this.data.issueChecklists = [];
+    if (!this.data.issueChecklistItems) this.data.issueChecklistItems = [];
+
+    const checklists = this.data.issueChecklists.filter(c => c.issue_id === issueId || c.issueId === issueId);
+    
+    return checklists.map(c => {
+      const items = (this.data.issueChecklistItems || [])
+        .filter(i => i.checklist_id === c.id || i.checklistId === c.id)
+        .sort((a, b) => (a.position || 0) - (b.position || 0));
+      
+      const completedCount = items.filter(i => i.is_completed || i.isCompleted).length;
+      return {
+        ...c,
+        id: c.id,
+        title: c.title,
+        items,
+        totalItems: items.length,
+        completedCount,
+        progressPct: items.length > 0 ? Math.round((completedCount / items.length) * 100) : 0
+      };
+    });
+  }
+
+  async addIssueChecklist(issueId, title = "QA Checklist") {
+    const issue = this.getIssueById(issueId);
+    if (!issue) return null;
+
+    const activeUser = this.getActiveUser();
+    const checklistId = `chk-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`;
+    const now = new Date().toISOString();
+
+    const newChecklist = {
+      id: checklistId,
+      issue_id: issue.id,
+      issueId: issue.id,
+      project_id: issue.projectId || issue.project_id,
+      projectId: issue.projectId || issue.project_id,
+      title: title.trim() || "Checklist",
+      created_by: activeUser ? activeUser.id : null,
+      created_at: now
+    };
+
+    if (!this.data.issueChecklists) this.data.issueChecklists = [];
+    this.data.issueChecklists.push(newChecklist);
+    this.saveState();
+    this.notify();
+
+    const sb = (typeof window !== 'undefined' && window.supabaseClient) || (typeof supabaseClient !== 'undefined' ? supabaseClient : null);
+    if (sb && sb.from) {
+      try {
+        await sb.from('issue_checklists').insert({
+          id: newChecklist.id,
+          issue_id: newChecklist.issue_id,
+          project_id: newChecklist.project_id,
+          title: newChecklist.title,
+          created_by: newChecklist.created_by
+        });
+      } catch (err) {
+        console.warn("Supabase checklist insert notice:", err.message);
+      }
+    }
+
+    return newChecklist;
+  }
+
+  async addChecklistItem(checklistId, content) {
+    if (!checklistId || !content || !content.trim()) return null;
+    if (!this.data.issueChecklistItems) this.data.issueChecklistItems = [];
+
+    const existingItems = this.data.issueChecklistItems.filter(i => i.checklist_id === checklistId || i.checklistId === checklistId);
+    const itemId = `chki-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`;
+    const now = new Date().toISOString();
+
+    const newItem = {
+      id: itemId,
+      checklist_id: checklistId,
+      checklistId: checklistId,
+      content: content.trim(),
+      is_completed: false,
+      isCompleted: false,
+      completed_by: null,
+      completed_at: null,
+      position: existingItems.length,
+      created_at: now
+    };
+
+    this.data.issueChecklistItems.push(newItem);
+    this.saveState();
+    this.notify();
+
+    const sb = (typeof window !== 'undefined' && window.supabaseClient) || (typeof supabaseClient !== 'undefined' ? supabaseClient : null);
+    if (sb && sb.from) {
+      try {
+        await sb.from('issue_checklist_items').insert({
+          id: newItem.id,
+          checklist_id: newItem.checklist_id,
+          content: newItem.content,
+          is_completed: false,
+          position: newItem.position
+        });
+      } catch (err) {
+        console.warn("Supabase checklist item insert notice:", err.message);
+      }
+    }
+
+    return newItem;
+  }
+
+  async toggleChecklistItem(itemId) {
+    if (!itemId) return null;
+    if (!this.data.issueChecklistItems) this.data.issueChecklistItems = [];
+
+    const item = this.data.issueChecklistItems.find(i => i.id === itemId);
+    if (!item) return null;
+
+    const activeUser = this.getActiveUser();
+    const newStatus = !(item.is_completed || item.isCompleted);
+    const now = new Date().toISOString();
+
+    item.is_completed = newStatus;
+    item.isCompleted = newStatus;
+    item.completed_by = newStatus ? (activeUser ? activeUser.id : null) : null;
+    item.completed_at = newStatus ? now : null;
+
+    this.saveState();
+    this.notify();
+
+    const sb = (typeof window !== 'undefined' && window.supabaseClient) || (typeof supabaseClient !== 'undefined' ? supabaseClient : null);
+    if (sb && sb.from) {
+      try {
+        await sb.from('issue_checklist_items').update({
+          is_completed: newStatus,
+          completed_by: item.completed_by,
+          completed_at: item.completed_at
+        }).eq('id', itemId);
+      } catch (err) {
+        console.warn("Supabase checklist item toggle notice:", err.message);
+      }
+    }
+
+    return item;
+  }
+
+  async deleteChecklistItem(itemId) {
+    if (!itemId) return false;
+    if (!this.data.issueChecklistItems) this.data.issueChecklistItems = [];
+
+    this.data.issueChecklistItems = this.data.issueChecklistItems.filter(i => i.id !== itemId);
+    this.saveState();
+    this.notify();
+
+    const sb = (typeof window !== 'undefined' && window.supabaseClient) || (typeof supabaseClient !== 'undefined' ? supabaseClient : null);
+    if (sb && sb.from) {
+      try {
+        await sb.from('issue_checklist_items').delete().eq('id', itemId);
+      } catch (err) {
+        console.warn("Supabase checklist item delete notice:", err.message);
+      }
+    }
+
+    return true;
+  }
+
+  /**
+   * 6. ISSUE RELATIONSHIPS & DEPENDENCIES
+   */
+  getIssueRelationships(issueId) {
+    if (!issueId) return [];
+    if (!this.data.issueRelationships) this.data.issueRelationships = [];
+
+    const links = this.data.issueRelationships.filter(r => 
+      r.source_issue_id === issueId || r.sourceIssueId === issueId || 
+      r.target_issue_id === issueId || r.targetIssueId === issueId
+    );
+
+    return links.map(r => {
+      const isSource = (r.source_issue_id === issueId || r.sourceIssueId === issueId);
+      const otherIssueId = isSource ? (r.target_issue_id || r.targetIssueId) : (r.source_issue_id || r.sourceIssueId);
+      const otherIssue = this.getIssueById(otherIssueId);
+      return {
+        ...r,
+        id: r.id,
+        isSource,
+        relationshipType: r.relationship_type || r.relationshipType,
+        otherIssue: otherIssue || { id: otherIssueId, key: "ISS-UNKNOWN", title: "Related Item", type: "Task", status: "Open" }
+      };
+    }).filter(r => r.otherIssue);
+  }
+
+  async addIssueRelationship(sourceIssueId, targetIssueId, relationshipType = "Relates To") {
+    if (!sourceIssueId || !targetIssueId || sourceIssueId === targetIssueId) return null;
+    if (!this.data.issueRelationships) this.data.issueRelationships = [];
+
+    const sourceIssue = this.getIssueById(sourceIssueId);
+    const targetIssue = this.getIssueById(targetIssueId);
+    if (!sourceIssue || !targetIssue) return null;
+
+    // Check duplicate
+    const exists = this.data.issueRelationships.some(r => 
+      ((r.source_issue_id === sourceIssueId || r.sourceIssueId === sourceIssueId) && (r.target_issue_id === targetIssueId || r.targetIssueId === targetIssueId)) ||
+      ((r.source_issue_id === targetIssueId || r.sourceIssueId === targetIssueId) && (r.target_issue_id === sourceIssueId || r.targetIssueId === sourceIssueId))
+    );
+    if (exists) return null;
+
+    const activeUser = this.getActiveUser();
+    const relId = `rel-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`;
+    const now = new Date().toISOString();
+
+    const newRel = {
+      id: relId,
+      project_id: sourceIssue.projectId || sourceIssue.project_id,
+      projectId: sourceIssue.projectId || sourceIssue.project_id,
+      source_issue_id: sourceIssue.id,
+      sourceIssueId: sourceIssue.id,
+      target_issue_id: targetIssue.id,
+      targetIssueId: targetIssue.id,
+      relationship_type: relationshipType,
+      relationshipType: relationshipType,
+      created_by: activeUser ? activeUser.id : "system",
+      created_at: now
+    };
+
+    this.data.issueRelationships.push(newRel);
+
+    this.recordIssueActivity(sourceIssue.id, 'relationship_added', {
+      targetKey: targetIssue.key,
+      relationshipType
+    });
+
+    this.saveState();
+    this.notify();
+
+    const sb = (typeof window !== 'undefined' && window.supabaseClient) || (typeof supabaseClient !== 'undefined' ? supabaseClient : null);
+    if (sb && sb.from) {
+      try {
+        await sb.from('issue_relationships').insert({
+          id: newRel.id,
+          project_id: newRel.project_id,
+          source_issue_id: newRel.source_issue_id,
+          target_issue_id: newRel.target_issue_id,
+          relationship_type: newRel.relationship_type,
+          created_by: newRel.created_by
+        });
+      } catch (err) {
+        console.warn("Supabase issue relationship insert notice:", err.message);
+      }
+    }
+
+    return newRel;
+  }
+
+  async removeIssueRelationship(relationshipId) {
+    if (!relationshipId) return false;
+    if (!this.data.issueRelationships) this.data.issueRelationships = [];
+
+    this.data.issueRelationships = this.data.issueRelationships.filter(r => r.id !== relationshipId);
+    this.saveState();
+    this.notify();
+
+    const sb = (typeof window !== 'undefined' && window.supabaseClient) || (typeof supabaseClient !== 'undefined' ? supabaseClient : null);
+    if (sb && sb.from) {
+      try {
+        await sb.from('issue_relationships').delete().eq('id', relationshipId);
+      } catch (err) {
+        console.warn("Supabase issue relationship delete notice:", err.message);
+      }
+    }
+
+    return true;
+  }
+
+  /**
+   * 7. ISSUE WATCHERS
+   */
+  isIssueWatched(issueId, userId = null) {
+    if (!issueId) return false;
+    if (!this.data.issueWatchers) this.data.issueWatchers = [];
+    const activeUser = this.getActiveUser();
+    const uid = userId || (activeUser ? activeUser.id : null);
+    if (!uid) return false;
+
+    return this.data.issueWatchers.some(w => 
+      (w.issue_id === issueId || w.issueId === issueId) && 
+      (w.user_id === uid || w.userId === uid)
+    );
+  }
+
+  async toggleIssueWatcher(issueId, userId = null) {
+    if (!issueId) return false;
+    if (!this.data.issueWatchers) this.data.issueWatchers = [];
+    const issue = this.getIssueById(issueId);
+    if (!issue) return false;
+
+    const activeUser = this.getActiveUser();
+    const uid = userId || (activeUser ? activeUser.id : null);
+    if (!uid) return false;
+
+    const existingIdx = this.data.issueWatchers.findIndex(w => 
+      (w.issue_id === issueId || w.issueId === issueId) && 
+      (w.user_id === uid || w.userId === uid)
+    );
+
+    const sb = (typeof window !== 'undefined' && window.supabaseClient) || (typeof supabaseClient !== 'undefined' ? supabaseClient : null);
+
+    if (existingIdx !== -1) {
+      this.data.issueWatchers.splice(existingIdx, 1);
+      this.saveState();
+      this.notify();
+
+      if (sb && sb.from) {
+        try {
+          await sb.from('issue_watchers').delete().eq('issue_id', issueId).eq('user_id', uid);
+        } catch (err) {
+          console.warn("Supabase watcher delete notice:", err.message);
+        }
+      }
+      return false; // Unwatched
+    } else {
+      const newWatcher = {
+        id: `wtc-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+        issue_id: issue.id,
+        issueId: issue.id,
+        project_id: issue.projectId || issue.project_id,
+        projectId: issue.projectId || issue.project_id,
+        user_id: uid,
+        userId: uid,
+        created_at: new Date().toISOString()
+      };
+      this.data.issueWatchers.push(newWatcher);
+      this.saveState();
+      this.notify();
+
+      if (sb && sb.from) {
+        try {
+          await sb.from('issue_watchers').insert({
+            id: newWatcher.id,
+            issue_id: newWatcher.issue_id,
+            project_id: newWatcher.project_id,
+            user_id: newWatcher.user_id
+          });
+        } catch (err) {
+          console.warn("Supabase watcher insert notice:", err.message);
+        }
+      }
+      return true; // Watched
+    }
+  }
+
+  getIssueWatchers(issueId) {
+    if (!issueId) return [];
+    if (!this.data.issueWatchers) this.data.issueWatchers = [];
+    return this.data.issueWatchers
+      .filter(w => w.issue_id === issueId || w.issueId === issueId)
+      .map(w => this.getUserById(w.user_id || w.userId))
+      .filter(Boolean);
+  }
+
+  /**
+   * 8. ISSUE ACTIVITY AUDIT TRAIL
+   */
+  getIssueActivities(issueId) {
+    if (!issueId) return [];
+    if (!this.data.issueActivities) this.data.issueActivities = [];
+    const issue = this.getIssueById(issueId);
+
+    let activities = this.data.issueActivities
+      .filter(a => a.issue_id === issueId || a.issueId === issueId)
+      .map(a => {
+        const actor = this.getUserById(a.actor_id || a.actorId) || { name: "Team Member", initials: "TM", color: "bg-slate-700" };
+        return {
+          ...a,
+          id: a.id,
+          actor,
+          activityType: a.activity_type || a.activityType,
+          metadata: a.metadata || {},
+          createdAt: a.created_at || a.createdAt || new Date().toISOString(),
+          relativeTime: this.formatRelativeTime(a.created_at || a.createdAt)
+        };
+      })
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+    // Backward compatibility with legacy issue.activityTimeline
+    if (activities.length === 0 && issue && Array.isArray(issue.activityTimeline) && issue.activityTimeline.length > 0) {
+      issue.activityTimeline.forEach((act, idx) => {
+        activities.push({
+          id: `act-leg-${idx}`,
+          actor: { name: act.user || "Team Member", initials: "TM", color: "bg-slate-700" },
+          activityType: "legacy_event",
+          metadata: { description: act.action },
+          createdAt: new Date().toISOString(),
+          relativeTime: act.time || "Initial"
+        });
+      });
+    }
+
+    return activities;
+  }
+
+  recordIssueActivity(issueId, activityType, metadata = {}) {
+    const issue = this.getIssueById(issueId);
+    if (!issue) return null;
+
+    const activeUser = this.getActiveUser();
+    const activityId = `act-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
+    const now = new Date().toISOString();
+
+    const newActivity = {
+      id: activityId,
+      issue_id: issue.id,
+      issueId: issue.id,
+      project_id: issue.projectId || issue.project_id,
+      projectId: issue.projectId || issue.project_id,
+      actor_id: activeUser ? activeUser.id : null,
+      actorId: activeUser ? activeUser.id : null,
+      activity_type: activityType,
+      activityType: activityType,
+      metadata: metadata,
+      created_at: now,
+      createdAt: now
+    };
+
+    if (!this.data.issueActivities) this.data.issueActivities = [];
+    this.data.issueActivities.unshift(newActivity);
+
+    // Keep global activities in sync
+    this.addActivity({
+      issueKey: issue.key,
+      issueId: issue.id,
+      projectId: issue.projectId || issue.project_id,
+      user: activeUser ? activeUser.name : "Team Member",
+      action: `${activityType.replace(/_/g, ' ')} on ${issue.key}`,
+      type: activityType
+    });
+
+    // Supabase sync
+    const sb = (typeof window !== 'undefined' && window.supabaseClient) || (typeof supabaseClient !== 'undefined' ? supabaseClient : null);
+    if (sb && sb.from && issue.projectId) {
+      (async () => {
+        try {
+          await sb.from('issue_activity').insert({
+            id: newActivity.id,
+            issue_id: newActivity.issue_id,
+            project_id: newActivity.project_id,
+            actor_id: newActivity.actor_id,
+            activity_type: newActivity.activity_type,
+            metadata: newActivity.metadata,
+            created_at: newActivity.created_at
+          });
+        } catch (err) {
+          console.warn("Supabase issue activity insert notice:", err.message);
+        }
+      })();
+    }
+
+    return newActivity;
+  }
+
+  /**
+   * 9. FULL SUPABASE SYNCHRONIZATION FOR AN ISSUE
+   */
+  async syncIssueDetailsFromSupabase(issueId) {
+    if (!issueId) return;
+    const sb = (typeof window !== 'undefined' && window.supabaseClient) || (typeof supabaseClient !== 'undefined' ? supabaseClient : null);
+    if (!sb || !sb.from) return;
+
+    try {
+      const [
+        { data: remoteComments },
+        { data: remoteReactions },
+        { data: remoteAttachments },
+        { data: remoteVerifications },
+        { data: remoteEvidence },
+        { data: remoteChecklists },
+        { data: remoteChecklistItems },
+        { data: remoteRelationships },
+        { data: remoteWatchers }
+      ] = await Promise.all([
+        sb.from('issue_comments').select('*').eq('issue_id', issueId),
+        sb.from('issue_comment_reactions').select('*'),
+        sb.from('issue_attachments').select('*').eq('issue_id', issueId),
+        sb.from('qa_verifications').select('*').eq('issue_id', issueId),
+        sb.from('qa_evidence').select('*').eq('issue_id', issueId),
+        sb.from('issue_checklists').select('*').eq('issue_id', issueId),
+        sb.from('issue_checklist_items').select('*'),
+        sb.from('issue_relationships').select('*').or(`source_issue_id.eq.${issueId},target_issue_id.eq.${issueId}`),
+        sb.from('issue_watchers').select('*').eq('issue_id', issueId)
+      ]);
+
+      if (Array.isArray(remoteComments)) {
+        if (!this.data.issueComments) this.data.issueComments = [];
+        this.data.issueComments = this.data.issueComments.filter(c => c.issue_id !== issueId && c.issueId !== issueId);
+        this.data.issueComments.push(...remoteComments.map(c => ({
+          ...c,
+          issueId: c.issue_id,
+          authorId: c.author_id,
+          parentCommentId: c.parent_comment_id,
+          editedAt: c.edited_at,
+          createdAt: c.created_at,
+          updatedAt: c.updated_at
+        })));
+      }
+
+      if (Array.isArray(remoteReactions)) {
+        this.data.issueCommentReactions = remoteReactions.map(r => ({ ...r, commentId: r.comment_id, userId: r.user_id }));
+      }
+
+      if (Array.isArray(remoteAttachments)) {
+        if (!this.data.issueAttachments) this.data.issueAttachments = [];
+        this.data.issueAttachments = this.data.issueAttachments.filter(a => a.issue_id !== issueId && a.issueId !== issueId);
+        this.data.issueAttachments.push(...remoteAttachments.map(a => ({
+          ...a,
+          issueId: a.issue_id,
+          uploadedBy: a.uploaded_by,
+          fileName: a.file_name,
+          storagePath: a.storage_path,
+          mimeType: a.mime_type,
+          fileSize: a.file_size,
+          createdAt: a.created_at
+        })));
+      }
+
+      if (Array.isArray(remoteVerifications)) {
+        if (!this.data.qaVerifications) this.data.qaVerifications = [];
+        this.data.qaVerifications = this.data.qaVerifications.filter(v => v.issue_id !== issueId && v.issueId !== issueId);
+        this.data.qaVerifications.push(...remoteVerifications.map(v => ({
+          ...v,
+          issueId: v.issue_id,
+          qaUserId: v.qa_user_id,
+          attemptNumber: v.attempt_number,
+          failureReason: v.failure_reason,
+          expectedResult: v.expected_result,
+          actualResult: v.actual_result,
+          buildVersion: v.build_version,
+          completedAt: v.completed_at,
+          createdAt: v.created_at
+        })));
+      }
+
+      if (Array.isArray(remoteEvidence)) {
+        if (!this.data.qaEvidence) this.data.qaEvidence = [];
+        this.data.qaEvidence = this.data.qaEvidence.filter(e => e.issue_id !== issueId && e.issueId !== issueId);
+        this.data.qaEvidence.push(...remoteEvidence.map(e => ({
+          ...e,
+          issueId: e.issue_id,
+          verificationId: e.verification_id,
+          uploadedBy: e.uploaded_by,
+          attachmentId: e.attachment_id,
+          buildVersion: e.build_version,
+          evidenceType: e.evidence_type,
+          createdAt: e.created_at
+        })));
+      }
+
+      if (Array.isArray(remoteChecklists)) {
+        if (!this.data.issueChecklists) this.data.issueChecklists = [];
+        this.data.issueChecklists = this.data.issueChecklists.filter(c => c.issue_id !== issueId && c.issueId !== issueId);
+        this.data.issueChecklists.push(...remoteChecklists.map(c => ({
+          ...c,
+          issueId: c.issue_id,
+          createdBy: c.created_by,
+          createdAt: c.created_at
+        })));
+      }
+
+      if (Array.isArray(remoteChecklistItems)) {
+        this.data.issueChecklistItems = remoteChecklistItems.map(i => ({
+          ...i,
+          checklistId: i.checklist_id,
+          isCompleted: i.is_completed,
+          completedBy: i.completed_by,
+          completedAt: i.completed_at
+        }));
+      }
+
+      if (Array.isArray(remoteRelationships)) {
+        if (!this.data.issueRelationships) this.data.issueRelationships = [];
+        this.data.issueRelationships = this.data.issueRelationships.filter(r => r.source_issue_id !== issueId && r.sourceIssueId !== issueId && r.target_issue_id !== issueId && r.targetIssueId !== issueId);
+        this.data.issueRelationships.push(...remoteRelationships.map(r => ({
+          ...r,
+          sourceIssueId: r.source_issue_id,
+          targetIssueId: r.target_issue_id,
+          relationshipType: r.relationship_type,
+          createdBy: r.created_by,
+          createdAt: r.created_at
+        })));
+      }
+
+      if (Array.isArray(remoteWatchers)) {
+        if (!this.data.issueWatchers) this.data.issueWatchers = [];
+        this.data.issueWatchers = this.data.issueWatchers.filter(w => w.issue_id !== issueId && w.issueId !== issueId);
+        this.data.issueWatchers.push(...remoteWatchers.map(w => ({
+          ...w,
+          issueId: w.issue_id,
+          userId: w.user_id,
+          createdAt: w.created_at
+        })));
+      }
+
+      this.saveState();
+    } catch (err) {
+      console.warn("Supabase issue detail sync notice:", err.message);
+    }
   }
 
   // ==========================================
@@ -4339,74 +6386,29 @@ class AppStore {
   }
 
   getActivities(limit = 20, projectId = null) {
-    let list = this.data.activities || [];
+    const authorizedProjects = this.getAuthorizedProjects() || [];
+    const authorizedProjectIds = new Set(authorizedProjects.map(p => p.id));
+    const authorizedProjectKeys = new Set(authorizedProjects.map(p => (p.key || '').toUpperCase()));
 
-    // Synthesize real activities from actual state if list is sparse
-    if (list.length < 5) {
-      const synthesized = [];
-      const projects = this.data.projects || [];
-      const issues = this.data.issues || [];
-      const sprints = this.data.sprints || [];
+    let rawList = this.data.activities || [];
+    let list = rawList.filter(a => {
+      if (a.projectId && authorizedProjectIds.has(a.projectId)) return true;
+      if (a.issueKey) {
+        const prefix = a.issueKey.split('-')[0].toUpperCase();
+        if (authorizedProjectKeys.has(prefix)) return true;
+        const issue = this.getIssueByKey(a.issueKey);
+        if (issue && (authorizedProjectIds.has(issue.projectId) || authorizedProjectIds.has(issue.project_id))) return true;
+      }
+      return false;
+    });
 
-      // Sprints
-      sprints.forEach(s => {
-        const prj = this.getProjectById(s.projectId || s.project_id);
-        synthesized.push({
-          id: `act_spr_${s.id}`,
-          issueKey: prj ? prj.key : "SPR",
-          projectId: s.projectId || s.project_id,
-          user: this.getActiveUser()?.name || "Project Lead",
-          action: `Created new sprint "${s.name}" in ${prj ? prj.name : 'project'}`,
-          type: "sprint_created",
-          timestamp: s.createdAt || s.created_at || new Date().toISOString()
-        });
-      });
-
-      // Issues
-      issues.forEach(i => {
-        const creator = this.getUserById(i.reporterId || i.reporter_id || i.assigneeId);
-        synthesized.push({
-          id: `act_iss_${i.id}`,
-          issueKey: i.key,
-          issueId: i.id,
-          projectId: i.projectId || i.project_id,
-          user: creator?.name || "Team Member",
-          action: `Created ${i.type} ${i.key}: "${i.title}"`,
-          type: "issue_created",
-          timestamp: i.createdAt || i.created_at || new Date().toISOString()
-        });
-      });
-
-      // Projects
-      projects.forEach(p => {
-        const pm = this.getUserById(p.pmId);
-        synthesized.push({
-          id: `act_prj_${p.id}`,
-          issueKey: p.key,
-          projectId: p.id,
-          user: pm?.name || "Project Manager",
-          action: `Created project workspace "${p.name}" (${p.key})`,
-          type: "project_created",
-          timestamp: p.startDate || new Date().toISOString()
-        });
-      });
-
-      // Merge avoiding duplicates
-      const existingIds = new Set(list.map(a => a.id));
-      synthesized.forEach(syn => {
-        if (!existingIds.has(syn.id)) {
-          list.push(syn);
-          existingIds.add(syn.id);
-        }
-      });
-
-      list.sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0));
-      this.data.activities = list;
+    if (projectId && projectId !== "all") {
+      const prj = this.getProjectById(projectId);
+      const prjKey = prj ? (prj.key || '').toUpperCase() : null;
+      list = list.filter(a => a.projectId === projectId || (prjKey && a.issueKey && a.issueKey.toUpperCase().startsWith(prjKey)));
     }
 
-    if (projectId) {
-      list = list.filter(a => a.projectId === projectId || (a.issueKey && a.issueKey.startsWith(this.getProjectById(projectId)?.key || "___")));
-    }
+    list.sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0));
 
     return list.slice(0, limit).map(a => ({
       ...a,
@@ -4416,11 +6418,17 @@ class AppStore {
 
   addActivity(act) {
     const activeUser = this.getActiveUser ? this.getActiveUser() : null;
+    const activeWs = this.getActiveWorkspace ? this.getActiveWorkspace() : null;
+    const activeProj = this.getActiveProject ? this.getActiveProject() : null;
+    const pId = act.projectId || (act.issueKey ? this.getIssueByKey(act.issueKey)?.projectId : null) || (activeProj ? activeProj.id : null);
+    const wsId = act.workspaceId || (activeWs ? activeWs.id : null);
+
     const newAct = {
       id: `act-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
       issueKey: act.issueKey || "",
       issueId: act.issueId || "",
-      projectId: act.projectId || "",
+      projectId: pId,
+      workspaceId: wsId,
       user: act.user || (activeUser ? activeUser.name : "Team Member"),
       userId: act.userId || (activeUser ? activeUser.id : null),
       action: act.action || "",
@@ -4430,29 +6438,43 @@ class AppStore {
 
     if (!this.data.activities) this.data.activities = [];
     this.data.activities.unshift(newAct);
-    if (this.data.activities.length > 100) this.data.activities.pop();
+    if (this.data.activities.length > 200) this.data.activities.pop();
     this.saveState();
   }
 
   getNotifications(userId = null) {
     if (!this.data.notifications) this.data.notifications = [];
     const activeUser = this.getActiveUser();
+    if (!activeUser && !userId) return [];
+
     const uid = userId || (activeUser ? activeUser.id : null);
     const uEmail = activeUser && activeUser.email ? activeUser.email.toLowerCase().trim() : null;
-
+    const activeWs = this.getActiveWorkspace();
+    const activeWsId = activeWs ? activeWs.id : this.data.activeWorkspaceId;
+    const authorizedProjects = this.getAuthorizedProjects() || [];
+    const authorizedProjectIds = new Set(authorizedProjects.map(p => p.id));
     const normRole = (activeUser?.role || '').toUpperCase();
-    const isLeadOrAdmin = !userId && (normRole.includes("OWNER") || normRole.includes("PROJECT_MANAGER") || normRole.includes("PM") || normRole.includes("ADMIN") || normRole.includes("LEAD"));
-
-    // If PM/Owner and not asking for a specific userId filter, show complete notifications stream
-    if (isLeadOrAdmin || (!uid && !uEmail)) {
-      return this.data.notifications;
-    }
+    const isLeadOrAdmin = normRole.includes("OWNER") || normRole.includes("PROJECT_MANAGER") || normRole.includes("PM") || normRole.includes("ADMIN") || normRole.includes("LEAD");
 
     return this.data.notifications.filter(n => {
-      if (!n.recipientId && !n.recipientEmail) return true; // broadcast
-      if (n.recipientId && (n.recipientId === uid || n.recipientId === activeUser?.id)) return true;
-      if (n.recipientEmail && uEmail && n.recipientEmail.toLowerCase().trim() === uEmail) return true;
-      return false;
+      // 1. Workspace Isolation
+      const nWsId = n.workspaceId || n.workspace_id;
+      if (nWsId && activeWsId && nWsId !== activeWsId) return false;
+
+      // 2. Project Isolation
+      const nProjId = n.projectId || n.project_id;
+      if (nProjId && authorizedProjectIds.size > 0 && !authorizedProjectIds.has(nProjId)) return false;
+
+      // 3. User Recipient Check
+      if (isLeadOrAdmin && !userId) return true;
+
+      if (n.recipientId || n.recipientEmail) {
+        return (n.recipientId && (n.recipientId === uid || n.recipientId === activeUser?.id)) ||
+               (n.recipientEmail && uEmail && n.recipientEmail.toLowerCase().trim() === uEmail);
+      }
+
+      // If notification has no specific recipient, it's space-wide broadcast within this space
+      return true;
     });
   }
 
@@ -4610,69 +6632,49 @@ class AppStore {
     return this.addComment(bugId, text);
   }
 
-  getTestSuites(projectId = null) {
-    return [
-      { id: "ts-1", projectId: projectId || this.data.activeProjectId, name: "Core Authentication & Security", count: 24, passRate: 98 },
-      { id: "ts-2", projectId: projectId || this.data.activeProjectId, name: "Checkout & Payment Gateway", count: 42, passRate: 92 },
-      { id: "ts-3", projectId: projectId || this.data.activeProjectId, name: "Inventory & Stock Reconciliation", count: 18, passRate: 100 },
-      { id: "ts-4", projectId: projectId || this.data.activeProjectId, name: "REST & GraphQL API Regression", count: 35, passRate: 96 }
-    ];
-  }
-
-  getTestCaseById(id) {
-    const cases = this.data.testCases || [];
-    return cases.find(c => c.id === id || c.key === id) || null;
-  }
-
-  createTestCase(tcInput) {
-    return { id: `tc-${Date.now()}`, key: `TC-${Date.now().toString().slice(-3)}`, ...tcInput };
-  }
-
-  duplicateTestCase(caseId) {
-    const tc = this.getTestCaseById(caseId);
-    return { ...tc, id: `tc-${Date.now()}`, key: `TC-DUP` };
-  }
-
-  createTestSuite(tsInput) {
-    return { id: `ts-${Date.now()}`, ...tsInput };
-  }
-
   getTestRuns(projectId = null) {
-    return [
-      {
-        id: "tr-1",
-        name: "Sprint 04 Regression Test Run",
-        environment: "Staging",
-        status: "Completed",
-        totalCases: 64,
-        passed: 60,
-        failed: 3,
-        blocked: 1,
-        executedBy: "Arslan Tariq",
-        date: "Today, 10:30 AM"
-      },
-      {
-        id: "tr-2",
-        name: "Payment Gateway Smoke Test Suite",
-        environment: "QA-Sandbox",
-        status: "In Progress",
-        totalCases: 28,
-        passed: 20,
-        failed: 1,
-        blocked: 0,
-        executedBy: "Emma Watson",
-        date: "Today, 02:15 PM"
-      }
-    ];
+    if (!this.data.testRuns) this.data.testRuns = [];
+    const authorizedProjects = this.getAuthorizedProjects() || [];
+    const authorizedProjectIds = new Set(authorizedProjects.map(p => p.id));
+    let runs = this.data.testRuns.filter(tr => {
+      const pId = tr.projectId || tr.project_id;
+      return pId && authorizedProjectIds.has(pId);
+    });
+    if (projectId && projectId !== "all") {
+      runs = runs.filter(r => (r.projectId === projectId || r.project_id === projectId));
+    }
+    return runs;
   }
 
   getTestRunById(runId) {
-    const runs = this.getTestRuns();
-    return runs.find(r => r.id === runId) || runs[0];
+    if (!this.data.testRuns) this.data.testRuns = [];
+    return this.data.testRuns.find(r => r.id === runId) || null;
   }
 
   createTestRun(input) {
-    return { id: `tr-${Date.now()}`, ...input };
+    const activeProject = this.getActiveProject() || {};
+    const activeUser = this.getActiveUser();
+    const id = input.id || `tr-${Date.now()}`;
+    const newRun = {
+      id,
+      projectId: input.projectId || activeProject.id || null,
+      project_id: input.projectId || activeProject.id || null,
+      name: input.name || "Sprint Test Run",
+      environment: input.environment || "Staging",
+      status: input.status || "In Progress",
+      totalCases: input.totalCases || 0,
+      passed: input.passed || 0,
+      failed: input.failed || 0,
+      blocked: input.blocked || 0,
+      executedBy: input.executedBy || (activeUser ? activeUser.name : "QA Engineer"),
+      date: input.date || "Today",
+      createdAt: new Date().toISOString(),
+      ...input
+    };
+    if (!this.data.testRuns) this.data.testRuns = [];
+    this.data.testRuns.unshift(newRun);
+    this.saveState();
+    return newRun;
   }
 
   recordTestCaseExecution(runId, caseId, data) {
@@ -4693,6 +6695,324 @@ class AppStore {
     });
   }
 
+  // ==========================================
+  // User Notification & Email Preferences
+  // ==========================================
+  getNotificationPreferences(userId = null) {
+    if (!this.data.userPreferences) this.data.userPreferences = {};
+    const activeUser = this.getActiveUser();
+    const uid = userId || (activeUser ? (activeUser.id || activeUser.email) : 'default');
+    
+    const defaults = {
+      emailOnChatMention: true,
+      emailOnDirectMessage: true,
+      emailOnProjectAssignment: true,
+      emailOnIssueAssignment: true,
+      emailOnQAHandoff: true,
+      emailOnCriticalBug: true,
+      emailOnSprintLifecycle: true,
+      emailOnQualityGateSignoff: true,
+      inAppToastsEnabled: true,
+      soundEnabled: false
+    };
+
+    if (!this.data.userPreferences[uid]) {
+      this.data.userPreferences[uid] = { ...defaults };
+    }
+    return { ...defaults, ...this.data.userPreferences[uid] };
+  }
+
+  updateNotificationPreferences(userId, prefs) {
+    if (!this.data.userPreferences) this.data.userPreferences = {};
+    const activeUser = this.getActiveUser();
+    const uid = userId || (activeUser ? (activeUser.id || activeUser.email) : 'default');
+    this.data.userPreferences[uid] = {
+      ...this.getNotificationPreferences(uid),
+      ...prefs,
+      updatedAt: new Date().toISOString()
+    };
+    this.saveState();
+    this.notify();
+    return this.data.userPreferences[uid];
+  }
+
+  // ==========================================
+  // Outbound Email Logs & Audit Trail
+  // ==========================================
+  getEmailLogs(filter = null) {
+    if (!this.data.emailLogs) this.data.emailLogs = [];
+    if (!filter) return this.data.emailLogs;
+    const f = filter.toLowerCase().trim();
+    return this.data.emailLogs.filter(e => 
+      (e.recipient && e.recipient.toLowerCase().includes(f)) ||
+      (e.subject && e.subject.toLowerCase().includes(f)) ||
+      (e.type && e.type.toLowerCase().includes(f)) ||
+      (e.title && e.title.toLowerCase().includes(f)) ||
+      (e.projectName && e.projectName.toLowerCase().includes(f))
+    );
+  }
+
+  clearEmailLogs() {
+    this.data.emailLogs = [];
+    this.saveState();
+    this.notify();
+    return true;
+  }
+
+  // ==========================================
+  // Responsive HTML Email Template Generator
+  // ==========================================
+  generateEmailTemplate({
+    type = 'notification',
+    title = 'PulseWave Notification',
+    message = '',
+    recipientName = 'Team Member',
+    senderName = 'PulseWave System',
+    projectName = 'Software Engineering Workspace',
+    projectKey = '',
+    issueKey = '',
+    issueTitle = '',
+    issuePriority = '',
+    actionUrl = '',
+    actionText = 'View in PulseWave',
+    metadata = {}
+  }) {
+    let badgeBg = '#f1f5f9';
+    let badgeText = '#475569';
+    let badgeLabel = 'NOTIFICATION';
+    let iconEmoji = '🔔';
+
+    if (type === 'project_assignment' || type === 'assignment') {
+      badgeBg = '#dbeafe';
+      badgeText = '#1e40af';
+      badgeLabel = 'PROJECT ASSIGNMENT';
+      iconEmoji = '🎯';
+    } else if (type === 'issue_assignment') {
+      badgeBg = '#fef3c7';
+      badgeText = '#92400e';
+      badgeLabel = 'TASK ASSIGNED';
+      iconEmoji = '⚡';
+    } else if (type === 'qa_handoff' || type === 'qa') {
+      badgeBg = '#f3e8ff';
+      badgeText = '#6b21a8';
+      badgeLabel = 'QA VERIFICATION';
+      iconEmoji = '🔍';
+    } else if (type === 'critical_defect' || type === 'bug') {
+      badgeBg = '#fee2e2';
+      badgeText = '#991b1b';
+      badgeLabel = 'CRITICAL DEFECT';
+      iconEmoji = '🚨';
+    } else if (type === 'chat_mention' || type === 'chat') {
+      badgeBg = '#ecfdf5';
+      badgeText = '#065f46';
+      badgeLabel = 'CHAT MENTION';
+      iconEmoji = '💬';
+    } else if (type === 'direct_message') {
+      badgeBg = '#f0fdf4';
+      badgeText = '#166534';
+      badgeLabel = 'DIRECT MESSAGE';
+      iconEmoji = '✉️';
+    } else if (type === 'sprint_milestone' || type === 'sprint') {
+      badgeBg = '#ede9fe';
+      badgeText = '#5b21b6';
+      badgeLabel = 'SPRINT MILESTONE';
+      iconEmoji = '🚀';
+    }
+
+    const appOrigin = (typeof window !== 'undefined' && window.location ? window.location.origin : 'https://pulsewave.io');
+    const finalUrl = actionUrl && actionUrl.startsWith('http') ? actionUrl : `${appOrigin}/#${actionUrl || 'dashboard'}`;
+
+    return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${title}</title>
+  <style>
+    body { margin: 0; padding: 0; background-color: #f8fafc; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #0f172a; }
+    .email-container { max-width: 600px; margin: 30px auto; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 20px -2px rgba(0,0,0,0.05); }
+    .header { background: #090d16; padding: 24px 32px; border-bottom: 3px solid #bef264; }
+    .brand { display: flex; align-items: center; justify-content: space-between; }
+    .logo-text { font-size: 18px; font-weight: 900; color: #ffffff; letter-spacing: -0.5px; }
+    .logo-accent { color: #bef264; }
+    .project-pill { background: rgba(255,255,255,0.1); color: #cbd5e1; padding: 4px 10px; border-radius: 9999px; font-size: 11px; font-weight: 700; }
+    .body { padding: 32px; }
+    .badge { display: inline-block; padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: 800; letter-spacing: 0.5px; text-transform: uppercase; background: ${badgeBg}; color: ${badgeText}; margin-bottom: 16px; }
+    .title { font-size: 20px; font-weight: 800; color: #0f172a; margin: 0 0 12px 0; line-height: 1.3; }
+    .greeting { font-size: 14px; color: #64748b; margin-bottom: 16px; }
+    .content-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; margin: 20px 0; font-size: 14px; line-height: 1.6; color: #334155; }
+    .meta-row { margin-top: 12px; padding-top: 12px; border-top: 1px dashed #cbd5e1; font-size: 12px; color: #64748b; }
+    .btn-container { text-align: center; margin: 28px 0 16px 0; }
+    .btn { display: inline-block; background: #090d16; color: #bef264 !important; text-decoration: none; padding: 12px 28px; border-radius: 10px; font-weight: 800; font-size: 14px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
+    .footer { background: #f1f5f9; padding: 20px 32px; font-size: 11px; color: #94a3b8; text-align: center; border-top: 1px solid #e2e8f0; }
+    .footer a { color: #64748b; text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="email-container">
+    <div class="header">
+      <div class="brand">
+        <div class="logo-text">Pulse<span class="logo-accent">Wave</span> QA & Project Suite</div>
+        ${projectName ? `<span class="project-pill">${projectName}</span>` : ''}
+      </div>
+    </div>
+    
+    <div class="body">
+      <div class="badge">${iconEmoji} ${badgeLabel}</div>
+      <h1 class="title">${title}</h1>
+      <div class="greeting">Hi ${recipientName || 'there'},</div>
+      
+      <div class="content-box">
+        <div>${message}</div>
+        ${issueKey ? `
+          <div class="meta-row">
+            <strong>Key:</strong> ${issueKey} &nbsp;|&nbsp; 
+            <strong>Title:</strong> ${issueTitle || issueKey} &nbsp;|&nbsp;
+            ${issuePriority ? `<strong>Priority:</strong> ${issuePriority} &nbsp;|&nbsp;` : ''}
+            <strong>Sender:</strong> ${senderName}
+          </div>
+        ` : `
+          <div class="meta-row">
+            <strong>Triggered By:</strong> ${senderName} &nbsp;|&nbsp; 
+            <strong>Date:</strong> ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}
+          </div>
+        `}
+      </div>
+
+      <div class="btn-container">
+        <a href="${finalUrl}" class="btn" target="_blank">${actionText} &rarr;</a>
+      </div>
+    </div>
+
+    <div class="footer">
+      <p>This automated email notification was dispatched by <strong>PulseWave Enterprise QA & Project Platform</strong>.</p>
+      <p>You received this because your notification preferences are enabled for ${badgeLabel.toLowerCase()} alerts.</p>
+      <p><a href="${appOrigin}/#settings">Manage Notification Preferences</a> &bull; <a href="${appOrigin}/#dashboard">Workspace Dashboard</a></p>
+    </div>
+  </div>
+</body>
+</html>
+    `.trim();
+  }
+
+  // ==========================================
+  // Dispatches Email Notification & Logs to Audit
+  // ==========================================
+  async dispatchEmailNotification({
+    recipient,
+    recipientId = null,
+    recipientName = null,
+    subject = null,
+    type = 'notification',
+    title = '',
+    message = '',
+    actionUrl = '',
+    actionText = 'View in PulseWave',
+    projectId = null,
+    issueKey = null,
+    issueTitle = null,
+    issuePriority = null,
+    metadata = {}
+  }) {
+    if (!recipient && recipientId) {
+      const u = this.getUserById(recipientId);
+      if (u && u.email) {
+        recipient = u.email;
+        if (!recipientName) recipientName = u.name;
+      }
+    }
+
+    if (!recipient || !recipient.includes('@')) {
+      return { skipped: true, reason: 'Invalid or missing recipient email' };
+    }
+
+    const cleanEmail = recipient.toLowerCase().trim();
+    const activeUser = this.getActiveUser();
+    const pId = projectId || this.data.activeProjectId;
+    const project = this.getProjectById(pId);
+    const projectName = project ? project.name : 'PulseWave Workspace';
+
+    // Check user preferences
+    const prefs = this.getNotificationPreferences(recipientId || cleanEmail);
+    if (type === 'chat_mention' && prefs.emailOnChatMention === false) return { skipped: true, reason: 'Preference disabled' };
+    if (type === 'direct_message' && prefs.emailOnDirectMessage === false) return { skipped: true, reason: 'Preference disabled' };
+    if ((type === 'project_assignment' || type === 'assignment') && prefs.emailOnProjectAssignment === false) return { skipped: true, reason: 'Preference disabled' };
+    if (type === 'issue_assignment' && prefs.emailOnIssueAssignment === false) return { skipped: true, reason: 'Preference disabled' };
+    if ((type === 'qa_handoff' || type === 'qa') && prefs.emailOnQAHandoff === false) return { skipped: true, reason: 'Preference disabled' };
+    if ((type === 'critical_defect' || type === 'bug') && prefs.emailOnCriticalBug === false) return { skipped: true, reason: 'Preference disabled' };
+    if ((type === 'sprint_milestone' || type === 'sprint') && prefs.emailOnSprintLifecycle === false) return { skipped: true, reason: 'Preference disabled' };
+
+    const emailSubject = subject || `[PulseWave] ${title || 'Notification Update'}`;
+    const emailHtml = this.generateEmailTemplate({
+      type,
+      title: title || subject,
+      message,
+      recipientName: recipientName || cleanEmail.split('@')[0],
+      senderName: activeUser ? activeUser.name || activeUser.email : 'PulseWave System',
+      projectName,
+      projectKey: project ? project.key : '',
+      issueKey,
+      issueTitle,
+      issuePriority,
+      actionUrl,
+      actionText,
+      metadata
+    });
+
+    // 1. Record in local emailLogs
+    if (!this.data.emailLogs) this.data.emailLogs = [];
+    const logEntry = {
+      id: `eml-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      recipient: cleanEmail,
+      recipientName: recipientName || cleanEmail.split('@')[0],
+      sender: activeUser ? activeUser.name || activeUser.email : 'PulseWave System',
+      subject: emailSubject,
+      type,
+      title: title || subject,
+      message,
+      html: emailHtml,
+      actionUrl,
+      actionText,
+      projectId: pId,
+      projectName,
+      issueKey,
+      status: 'delivered',
+      sentAt: new Date().toISOString()
+    };
+
+    this.data.emailLogs.unshift(logEntry);
+    if (this.data.emailLogs.length > 200) {
+      this.data.emailLogs = this.data.emailLogs.slice(0, 200);
+    }
+    this.saveState();
+
+    // 2. Dispatch via Supabase Edge Function if available
+    try {
+      const sb = (typeof window !== 'undefined' && window.supabaseClient) || (typeof supabaseClient !== 'undefined' ? supabaseClient : null);
+      if (sb && sb.functions && sb.functions.invoke) {
+        await sb.functions.invoke('send-notification-email', {
+          body: {
+            to: cleanEmail,
+            subject: emailSubject,
+            html: emailHtml,
+            type,
+            metadata
+          }
+        }).catch(err => console.warn("Edge function email notice:", err.message));
+      }
+    } catch (e) {
+      console.warn("Edge email dispatch notice:", e);
+    }
+
+    // 3. UI Real-time toast feedback if active
+    if (typeof window !== 'undefined' && window.app && window.app.showEmailToast) {
+      window.app.showEmailToast(logEntry);
+    }
+
+    return { success: true, log: logEntry };
+  }
+
   addNotification(notif) {
     if (!notif || !notif.title) return null;
 
@@ -4701,14 +7021,17 @@ class AppStore {
       title: notif.title,
       message: notif.message || "",
       type: notif.type || "info", // assignment | qa | bug | release | chat | comment | sprint | role | info
+      emailType: notif.emailType || notif.type || "notification",
       issueKey: notif.issueKey || notif.key || "",
       issueId: notif.issueId || "",
       projectId: notif.projectId || "",
       chatMessageId: notif.chatMessageId || null,
       testCaseId: notif.testCaseId || null,
       link: notif.link || "",
+      actionText: notif.actionText || "",
       recipientId: notif.recipientId || null,
       recipientEmail: notif.recipientEmail ? notif.recipientEmail.toLowerCase().trim() : null,
+      recipientName: notif.recipientName || null,
       timestamp: "Just now",
       createdAt: new Date().toISOString(),
       read: false
@@ -4738,6 +7061,37 @@ class AppStore {
       }
     }
 
+    // Automatic Email Notification Dispatch
+    if (notif.sendEmail !== false) {
+      let recEmail = newNotif.recipientEmail;
+      let recName = notif.recipientName || null;
+      if (!recEmail && newNotif.recipientId) {
+        const u = this.getUserById(newNotif.recipientId);
+        if (u && u.email) {
+          recEmail = u.email;
+          recName = u.name;
+        }
+      }
+      if (recEmail) {
+        this.dispatchEmailNotification({
+          recipient: recEmail,
+          recipientId: newNotif.recipientId,
+          recipientName: recName,
+          subject: notif.emailSubject || `[PulseWave] ${newNotif.title}`,
+          type: notif.emailType || newNotif.type,
+          title: newNotif.title,
+          message: newNotif.message,
+          actionUrl: newNotif.link || (newNotif.issueId ? `all-issues` : (newNotif.projectId ? `project-workspace?projectId=${newNotif.projectId}` : 'dashboard')),
+          actionText: notif.actionText || (newNotif.issueKey ? `View ${newNotif.issueKey}` : 'Open in PulseWave'),
+          projectId: newNotif.projectId,
+          issueKey: newNotif.issueKey,
+          issueTitle: notif.issueTitle || null,
+          issuePriority: notif.issuePriority || null,
+          metadata: notif.metadata || {}
+        }).catch(err => console.warn("Email dispatch background notice:", err));
+      }
+    }
+
     return newNotif;
   }
 
@@ -4745,16 +7099,34 @@ class AppStore {
   // Aggregate Stats (Global & Project)
   // ==========================================
   getGlobalStats() {
-    const projects = (this.getProjects && this.getProjects().length > 0) ? this.getProjects() : (this.data.projects || []);
-    const issues = (this.getIssues && this.getIssues().length > 0) ? this.getIssues() : (this.data.issues || []);
+    const projects = this.getProjects() || [];
+    const issues = this.getIssues() || [];
 
     const totalIssues = issues.length;
-    const openBugs = issues.filter(i => i.type === "Bug" && i.status !== "Done" && i.status !== "Closed").length;
-    const criticalBugs = issues.filter(i => i.type === "Bug" && i.priority === "Critical" && i.status !== "Done" && i.status !== "Closed").length;
-    const inProgress = issues.filter(i => i.status === "In Progress" || i.status === "In Development").length;
-    const readyForQa = issues.filter(i => i.status === "Ready for QA" || i.status === "QA" || i.status === "Fixed" || i.status === "QA Testing").length;
-    const completed = issues.filter(i => i.status === "Done" || i.status === "Closed" || i.qaStatus === "Passed").length;
-    const reopenedBugs = issues.filter(i => i.status === "Reopened" || (i.reopenCount && i.reopenCount > 0)).length;
+    const bugs = issues.filter(i => {
+      const t = (i.type || i.issue_type || '').toLowerCase();
+      return t === 'bug' || t === 'defect';
+    });
+    const openBugs = bugs.filter(i => i.status !== "Done" && i.status !== "Closed").length;
+    const criticalBugs = bugs.filter(i => {
+      const p = (i.priority || i.severity || '').toLowerCase();
+      return (p === "critical" || p === "p0") && i.status !== "Done" && i.status !== "Closed";
+    }).length;
+    const inProgress = issues.filter(i => {
+      const s = (i.status || '').toLowerCase().trim();
+      return s === "in progress" || s === "in development" || s.includes("dev") || s.includes("progress");
+    }).length;
+    const readyForQa = issues.filter(i => {
+      const s = (i.status || '').toLowerCase().trim();
+      const qs = (i.qaStatus || i.qa_status || '').toLowerCase().trim();
+      return s === "ready for qa" || s === "qa" || s === "fixed" || s === "qa testing" || s === "in qa" || s === "testing" || qs === "ready for qa" || qs === "testing";
+    }).length;
+    const completed = issues.filter(i => {
+      const s = (i.status || '').toLowerCase().trim();
+      const qs = (i.qaStatus || i.qa_status || '').toLowerCase().trim();
+      return s === "done" || s === "closed" || qs === "passed";
+    }).length;
+    const reopenedBugs = bugs.filter(i => i.status === "Reopened" || (i.reopenCount && Number(i.reopenCount) > 0)).length;
 
     const flow = {
       backlog: issues.filter(i => i.status === "Backlog" || i.status === "Open").length,
@@ -4765,20 +7137,19 @@ class AppStore {
     };
 
     const projectHealthList = projects.map(p => {
-      const pIssues = issues.filter(i => i.projectId === p.id);
-      const pDone = pIssues.filter(i => i.status === "Done" || i.status === "Closed" || i.qaStatus === "Passed").length;
+      const pStats = this.getProjectStats(p.id);
       return {
         id: p.id,
         key: p.key,
         name: p.name,
-        health: p.health || 90,
+        health: pStats.health,
         status: p.status || "Active",
-        completedIssues: pDone,
-        totalIssues: pIssues.length
+        completedIssues: pStats.completed,
+        totalIssues: pStats.total
       };
     });
 
-    const qaQueueStats = this.getQAQueueStats();
+    const qaQueueStats = this.getQAQueueStats ? this.getQAQueueStats() : { total: readyForQa, readyCount: readyForQa, inTestingCount: 0, passedToday: 0, failedToday: 0 };
 
     return {
       activeProjectsCount: projects.filter(p => (p.status || 'Active') === "Active").length,
@@ -4800,29 +7171,68 @@ class AppStore {
     const issues = this.getIssues(projectId) || [];
     const total = issues.length;
     const open = issues.filter(i => i.status !== "Done" && i.status !== "Closed").length;
-    const inProgress = issues.filter(i => i.status === "In Progress" || i.status === "In Development").length;
-    const qa = issues.filter(i => i.status === "Ready for QA" || i.status === "QA Testing" || i.qaStatus === "Testing").length;
-    const completed = issues.filter(i => i.status === "Done" || i.status === "Closed" || i.qaStatus === "Passed").length;
-    const bugs = issues.filter(i => i.type === "Bug");
+    const inProgress = issues.filter(i => {
+      const s = (i.status || "").toLowerCase().trim();
+      return s === "in progress" || s === "in development" || s.includes("dev") || s.includes("progress");
+    }).length;
+    const qa = issues.filter(i => {
+      const s = (i.status || "").toLowerCase().trim();
+      const qs = (i.qaStatus || i.qa_status || "").toLowerCase().trim();
+      return s === "ready for qa" || s === "qa testing" || s === "in qa" || s === "testing" || qs === "testing" || qs === "ready for qa";
+    }).length;
+    const completed = issues.filter(i => {
+      const s = (i.status || "").toLowerCase().trim();
+      const qs = (i.qaStatus || i.qa_status || "").toLowerCase().trim();
+      return s === "done" || s === "closed" || qs === "passed";
+    }).length;
+    const bugs = issues.filter(i => {
+      const t = (i.type || i.issue_type || "").toLowerCase().trim();
+      return t === "bug" || t === "defect";
+    });
     const activeBugs = bugs.filter(i => i.status !== "Done" && i.status !== "Closed");
-    const criticalBugs = activeBugs.filter(i => i.priority === "Critical").length;
-    const highBugs = activeBugs.filter(i => i.priority === "High").length;
+    const criticalBugs = activeBugs.filter(i => {
+      const p = (i.priority || i.severity || "").toLowerCase().trim();
+      return p === "critical" || p === "p0";
+    }).length;
+    const highBugs = activeBugs.filter(i => {
+      const p = (i.priority || i.severity || "").toLowerCase().trim();
+      return p === "high" || p === "p1";
+    }).length;
+    const mediumBugs = activeBugs.filter(i => {
+      const p = (i.priority || i.severity || "").toLowerCase().trim();
+      return p === "medium" || p === "p2";
+    }).length;
+    const lowBugs = activeBugs.filter(i => {
+      const p = (i.priority || i.severity || "").toLowerCase().trim();
+      return p === "low" || p === "p3" || p === "p4";
+    }).length;
     const reopenedBugs = bugs.filter(i => i.status === "Reopened" || Number(i.reopenCount || 0) > 0).length;
 
     const progressPct = total > 0 ? Math.round((completed / total) * 100) : 0;
 
-    // 1. Real Story Points & Delivery Scope
+    // 1. Real Story Points & Delivery Scope Breakdown
     let totalSP = 0;
     let completedSP = 0;
+    let inProgressSP = 0;
+    let qaSP = 0;
+    let backlogSP = 0;
     let hasStoryPoints = false;
+
     issues.forEach(i => {
-      const sp = Number(i.storyPoints || i.story_points || 0);
-      if (sp > 0) {
-        hasStoryPoints = true;
-        totalSP += sp;
-        if (i.status === "Done" || i.status === "Closed" || i.qaStatus === "Passed") {
-          completedSP += sp;
-        }
+      const rawSP = Number(i.storyPoints || i.story_points || 0);
+      const sp = rawSP > 0 ? rawSP : (i.priority === 'Critical' ? 8 : i.priority === 'High' ? 5 : i.priority === 'Medium' ? 3 : 1);
+      if (rawSP > 0) hasStoryPoints = true;
+      totalSP += sp;
+      const s = (i.status || "").toLowerCase().trim();
+      const qs = (i.qaStatus || i.qa_status || "").toLowerCase().trim();
+      if (s === "done" || s === "closed" || qs === "passed") {
+        completedSP += sp;
+      } else if (s === "ready for qa" || s === "qa testing" || s === "in qa" || s === "testing" || qs === "testing" || qs === "ready for qa") {
+        qaSP += sp;
+      } else if (s === "in progress" || s === "in development" || s.includes("dev") || s.includes("progress")) {
+        inProgressSP += sp;
+      } else {
+        backlogSP += sp;
       }
     });
 
@@ -4947,31 +7357,36 @@ class AppStore {
       hasData: slaApplicableCount > 0
     };
 
-    // 5. Real QA Verification Metrics (Derived from issues & test cases)
-    const passedCount = issues.filter(i => i.qaStatus === 'Passed' || i.qa_status === 'Passed' || (i.status === 'Done' && i.type !== 'Bug')).length;
-    const testedCount = issues.filter(i => i.qaStatus === 'Passed' || i.qaStatus === 'Failed' || i.qa_status === 'Passed' || i.qa_status === 'Failed' || i.status === 'Done' || i.status === 'Closed').length;
-    const passRate = testedCount > 0 ? Math.round((passedCount / testedCount) * 100) : (completed > 0 ? 100 : null);
-
+    // 5. Real QA Verification Metrics (Derived from test cases & verified issues)
     const projectTests = (this.data.testCases || []).filter(t => t.projectId === projectId || t.project_id === projectId);
-    const qaMetrics = {
-      passRate: passRate !== null ? passRate : 0,
-      hasPassRateData: passRate !== null,
-      totalTestCases: projectTests.length,
-      openDefects: activeBugs.length,
-      testedIssuesCount: testedCount
-    };
+    const testCasesCount = projectTests.length;
+    const passedCount = projectTests.filter(t => t.status === 'Passed' || t.status === 'Pass' || t.lastExecutionStatus === 'Passed' || t.lastResult === 'Passed').length;
+    const failedCount = projectTests.filter(t => t.status === 'Failed' || t.status === 'Fail' || t.lastExecutionStatus === 'Failed' || t.lastResult === 'Failed').length;
+    const blockedCount = projectTests.filter(t => t.status === 'Blocked' || t.lastExecutionStatus === 'Blocked' || t.lastResult === 'Blocked').length;
+    const testPassRate = testCasesCount > 0 ? Math.round((passedCount / testCasesCount) * 100) : null;
 
-    // 6. Real Project Health Score (Derived from defects, pass rate & SLA)
-    let health = 100;
-    if (total > 0) {
-      health -= (criticalBugs * 20);
-      health -= (highBugs * 8);
-      health -= (reopenedBugs * 5);
+    // 6. Real Quality Health Score (Derived from defect severity, pass rate & SLA)
+    let qualityScore = 100;
+    if (testCasesCount > 0) {
+      let defectPenalty = (criticalBugs * 25) + (highBugs * 15) + (mediumBugs * 5);
+      let defectScore = Math.max(0, 100 - defectPenalty);
+      qualityScore = Math.round((testPassRate * 0.6) + (defectScore * 0.4));
+    } else {
+      let defectPenalty = (criticalBugs * 25) + (highBugs * 15) + (mediumBugs * 5) + (lowBugs * 2);
       if (slaCompliancePct !== null && slaCompliancePct < 90) {
-        health -= Math.round((90 - slaCompliancePct) / 2);
+        defectPenalty += Math.round((90 - slaCompliancePct) / 2);
       }
-      health = Math.max(0, Math.min(100, health));
+      qualityScore = Math.max(0, 100 - defectPenalty);
     }
+    qualityScore = Math.max(0, Math.min(100, qualityScore));
+
+    const qaMetrics = {
+      passRate: testPassRate !== null ? testPassRate : qualityScore,
+      hasPassRateData: testPassRate !== null,
+      totalTestCases: testCasesCount,
+      openDefects: activeBugs.length,
+      testedIssuesCount: completed
+    };
 
     return {
       total,
@@ -4980,20 +7395,33 @@ class AppStore {
       qa,
       completed,
       activeBugs: activeBugs.length,
+      bugs: activeBugs.length,
+      defects: activeBugs.length,
       criticalBugs,
       highBugs,
+      mediumBugs,
+      lowBugs,
       reopenedBugs,
       progressPct,
       spProgressPct,
+      totalSP,
+      inProgressSP,
+      qaSP,
+      completedSP,
+      backlogSP,
+      hasStoryPoints,
+      testCasesCount,
+      passedCount,
+      failedCount,
+      blockedCount,
+      testPassRate,
+      qualityScore,
+      health: qualityScore,
       daysRemaining: targetRelease.label,
       targetRelease,
       velocity,
       sla,
-      totalSP,
-      completedSP,
-      hasStoryPoints,
       activeSprint,
-      health,
       qaMetrics
     };
   }
@@ -5069,7 +7497,14 @@ class AppStore {
   // =========================================================================
   getTestSuites(projectId = null, testPlanId = null) {
     if (!this.data.testSuites) this.data.testSuites = [];
-    let list = this.data.testSuites;
+    const authorizedProjects = this.getAuthorizedProjects() || [];
+    const authorizedProjectIds = new Set(authorizedProjects.map(p => p.id));
+
+    let list = this.data.testSuites.filter(ts => {
+      const pId = ts.projectId || ts.project_id;
+      return pId && authorizedProjectIds.has(pId);
+    });
+
     if (projectId && projectId !== "all") {
       list = list.filter(ts => (ts.projectId === projectId || ts.project_id === projectId));
     }
@@ -5134,10 +7569,16 @@ class AppStore {
   // =========================================================================
   getTestCases(projectId = null, filters = null) {
     if (!this.data.testCases) this.data.testCases = [];
+    const authorizedProjects = this.getAuthorizedProjects() || [];
+    const authorizedProjectIds = new Set(authorizedProjects.map(p => p.id));
     const activeProject = this.getActiveProject() || {};
-    const prjId = projectId || activeProject.id || null;
+    const prjId = projectId || (projectId === null ? null : activeProject.id);
 
-    let list = this.data.testCases;
+    let list = this.data.testCases.filter(tc => {
+      const pId = tc.projectId || tc.project_id;
+      return pId && authorizedProjectIds.has(pId);
+    });
+
     if (prjId && prjId !== "all") {
       list = list.filter(tc => (tc.projectId === prjId || tc.project_id === prjId));
     }
@@ -7319,24 +9760,26 @@ class AppStore {
       if (pm.projectId === projectId || pm.project_id === projectId) {
         const u = this.getUserById(pm.userId || pm.user_id || pm.email);
         if (u && !membersMap.has(u.id)) {
-          membersMap.set(u.id, { ...u, projectRole: pm.role || u.role || "DEVELOPER" });
+          const r = (pm.role || u.role || "DEVELOPER").toUpperCase();
+          membersMap.set(u.id, { ...u, role: r, projectRole: r });
         }
       }
     });
 
     // 2. Project Lead PM and listed member IDs
     if (project) {
-      if (project.pmId) {
+      if (project.pmId && project.pmId !== 'unassigned' && project.pmId !== 'Unassigned') {
         const pmUser = this.getUserById(project.pmId);
         if (pmUser && !membersMap.has(pmUser.id)) {
-          membersMap.set(pmUser.id, { ...pmUser, projectRole: "PM" });
+          membersMap.set(pmUser.id, { ...pmUser, role: "OWNER", projectRole: "PM" });
         }
       }
       if (Array.isArray(project.members)) {
         project.members.forEach(uid => {
           const u = this.getUserById(uid);
           if (u && !membersMap.has(u.id)) {
-            membersMap.set(u.id, { ...u, projectRole: u.role || "DEVELOPER" });
+            const r = (u.role || "DEVELOPER").toUpperCase();
+            membersMap.set(u.id, { ...u, role: r, projectRole: r });
           }
         });
       }
@@ -7348,7 +9791,8 @@ class AppStore {
         if (wm.workspace_id === wsId && (wm.role === "OWNER" || wm.role === "PROJECT_MANAGER" || wm.role === "PM" || wm.role === "QA_ENGINEER" || wm.role === "QA")) {
           const u = this.getUserById(wm.user_id || wm.id || wm.email);
           if (u && !membersMap.has(u.id)) {
-            membersMap.set(u.id, { ...u, projectRole: wm.role });
+            const r = (wm.role || "QA").toUpperCase();
+            membersMap.set(u.id, { ...u, role: r, projectRole: r });
           }
         }
       });
@@ -7356,7 +9800,7 @@ class AppStore {
       if (ws && ws.owner_id) {
         const owner = this.getUserById(ws.owner_id);
         if (owner && !membersMap.has(owner.id)) {
-          membersMap.set(owner.id, { ...owner, projectRole: "OWNER" });
+          membersMap.set(owner.id, { ...owner, role: "OWNER", projectRole: "OWNER" });
         }
       }
     }
@@ -7365,7 +9809,8 @@ class AppStore {
     if (membersMap.size === 0 && this.data.users) {
       this.data.users.forEach(u => {
         if (!membersMap.has(u.id)) {
-          membersMap.set(u.id, { ...u, projectRole: u.role || "DEVELOPER" });
+          const r = (u.role || "DEVELOPER").toUpperCase();
+          membersMap.set(u.id, { ...u, role: r, projectRole: r });
         }
       });
     }
@@ -7904,14 +10349,19 @@ class AppStore {
 
         // Trigger notification for mentioned user
         const channelName = conv.type === 'PROJECT' ? `#${conv.name}` : 'Project Chat';
+        const memUser = this.getUserById(mUserId);
         this.addNotification({
           title: `Mentioned in ${channelName}`,
           message: `${activeUser.name} mentioned you in ${proj ? proj.name : 'Project'}: "${cleanMsg.substring(0, 60)}"`,
           type: "chat",
+          emailType: "chat_mention",
           recipientId: mUserId,
+          recipientEmail: memUser ? memUser.email : null,
+          recipientName: memUser ? memUser.name : null,
           projectId: cProjId,
           chatMessageId: msgId,
-          link: `project-workspace?projectId=${cProjId}`
+          link: `project-workspace?projectId=${cProjId}`,
+          actionText: 'Reply in Chat'
         });
       });
     }
@@ -7926,14 +10376,19 @@ class AppStore {
         const peerId = peerEntries[0].user_id || peerEntries[0].userId;
         if (!notifiedUserIds.has(peerId)) {
           notifiedUserIds.add(peerId);
+          const peerUser = this.getUserById(peerId);
           this.addNotification({
             title: `Direct Message from ${activeUser.name}`,
             message: `[${proj ? proj.key : 'Chat'}] ${cleanMsg.substring(0, 70)}`,
             type: "chat",
+            emailType: "direct_message",
             recipientId: peerId,
+            recipientEmail: peerUser ? peerUser.email : null,
+            recipientName: peerUser ? peerUser.name : null,
             projectId: cProjId,
             chatMessageId: msgId,
-            link: `project-workspace?projectId=${cProjId}`
+            link: `project-workspace?projectId=${cProjId}`,
+            actionText: 'Open Direct Message'
           });
         }
       }
@@ -7945,14 +10400,19 @@ class AppStore {
       const parentSenderId = parentMsg ? (parentMsg.sender_id || parentMsg.senderId) : null;
       if (parentSenderId && parentSenderId !== activeUser.id && !notifiedUserIds.has(parentSenderId)) {
         notifiedUserIds.add(parentSenderId);
+        const parentUser = this.getUserById(parentSenderId);
         this.addNotification({
           title: `${activeUser.name} replied to your message`,
           message: `"${cleanMsg.substring(0, 60)}"`,
           type: "chat",
+          emailType: "chat_mention",
           recipientId: parentSenderId,
+          recipientEmail: parentUser ? parentUser.email : null,
+          recipientName: parentUser ? parentUser.name : null,
           projectId: cProjId,
           chatMessageId: msgId,
-          link: `project-workspace?projectId=${cProjId}`
+          link: `project-workspace?projectId=${cProjId}`,
+          actionText: 'View Reply'
         });
       }
     }
@@ -7968,11 +10428,13 @@ class AppStore {
             title: `💬 New Message in ${proj ? proj.name : 'Project Chat'}`,
             message: `${activeUser.name}: "${cleanMsg.substring(0, 70)}"`,
             type: "chat",
+            sendEmail: false, // Don't spam inbox on general chat messages unless mentioned
             recipientId: mId,
             recipientEmail: mem.email,
             projectId: cProjId,
             chatMessageId: msgId,
-            link: `project-workspace?projectId=${cProjId}`
+            link: `project-workspace?projectId=${cProjId}`,
+            actionText: 'Open Project Chat'
           });
         }
       });
@@ -8470,20 +10932,7 @@ class AppStore {
     return true; // All authenticated members with project access can view
   }
 
-  /**
-   * Get releases for project
-   */
-  getReleases(projectId = null) {
-    if (!this.data.releases) this.data.releases = [];
-    if (!projectId) {
-      const activeProject = this.getActiveProject();
-      if (!activeProject) return this.data.releases;
-      projectId = activeProject.id;
-    }
-    return this.data.releases
-      .filter(r => r.projectId === projectId || r.project_id === projectId)
-      .sort((a, b) => new Date(b.created_at || b.createdAt || 0) - new Date(a.created_at || a.createdAt || 0));
-  }
+
 
   /**
    * Get single release by ID
@@ -8991,16 +11440,17 @@ class AppStore {
     const startStr = typeof startDate === 'string' ? startDate.split('T')[0] : '';
     const endStr = typeof (endDate || startDate) === 'string' ? (endDate || startDate).split('T')[0] : startStr;
 
-    const startTs = new Date(`${startStr}T00:00:00.000`).getTime();
-    const endTs = new Date(`${endStr}T23:59:59.999`).getTime();
-
     return issues.filter(issue => {
       const createdRaw = issue.createdAt || issue.created_at || issue.updatedAt || issue.updated_at;
       if (!createdRaw) return false;
       const issueDate = new Date(createdRaw);
-      const issueTs = issueDate.getTime();
-      if (isNaN(issueTs)) return false;
-      return issueTs >= startTs && issueTs <= endTs;
+      if (isNaN(issueDate.getTime())) return false;
+
+      const pad = (n) => String(n).padStart(2, '0');
+      const localStr = `${issueDate.getFullYear()}-${pad(issueDate.getMonth() + 1)}-${pad(issueDate.getDate())}`;
+      const utcStr = issueDate.toISOString().split('T')[0];
+
+      return (localStr >= startStr && localStr <= endStr) || (utcStr >= startStr && utcStr <= endStr);
     });
   }
 

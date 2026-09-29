@@ -14,15 +14,13 @@ if (cssContent.includes('.kanban-col-body {') && cssContent.includes('.kanban-co
   console.error("❌ CSS: styles.css missing expected rules.");
 }
 
-// 2. Check projectChat.js
+// 2. Check projectChat.js & projectWorkspace.js
 const chatContent = fs.readFileSync(path.join(__dirname, '../js/views/projectChat.js'), 'utf8');
-if (chatContent.includes("isBoardTab") && 
-    chatContent.includes("boardAIAssistantTrigger") && 
-    chatContent.includes("boardAddCardTrigger") && 
-    chatContent.includes("floatingProjectChatTrigger")) {
-  console.log("✅ projectChat.js: Correctly checks isBoardTab and renders AI QA Assistant + Add Card buttons on board page, and Project Chat button on other tabs.");
+const wsHeaderContent = fs.readFileSync(path.join(__dirname, '../js/views/projectWorkspace.js'), 'utf8');
+if (chatContent.includes("floatingChatPopupMount") && wsHeaderContent.includes("headerProjectChatBtn")) {
+  console.log("✅ projectChat.js & projectWorkspace.js: Chat is opened cleanly via header/actions and renders popup without persistent bottom floating button.");
 } else {
-  console.error("❌ projectChat.js: Missing tab condition or triggers.");
+  console.error("❌ projectChat.js / projectWorkspace.js: Missing floatingChatPopupMount or headerProjectChatBtn.");
 }
 
 // 3. Check projectWorkspace.js

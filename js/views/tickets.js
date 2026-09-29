@@ -361,9 +361,15 @@ const TicketsView = {
           const ticketId = e.dataTransfer.getData("text/plain");
           const newStatus = col.dataset.status;
           if (ticketId && newStatus) {
-            store.updateTicketStatus(ticketId, newStatus);
-            window.app.toast("Status Updated", `Ticket moved to "${newStatus}".`, "info");
-            TicketsView.render(document.getElementById("mainContent"));
+            if (window.app && typeof window.app.openWorkflowTransitionModal === 'function' && ['Ready for QA', 'Done', 'Reopened', 'Blocked', 'QA Passed', 'QA Testing'].includes(newStatus)) {
+              window.app.openWorkflowTransitionModal(ticketId, newStatus, true);
+            } else {
+              store.updateTicketStatus(ticketId, newStatus);
+              if (window.app && typeof window.app.toast === 'function') {
+                window.app.toast("Status Updated", `Ticket moved to "${newStatus}".`, "info");
+              }
+              TicketsView.render(document.getElementById("mainContent"));
+            }
           }
         });
       });
@@ -371,6 +377,10 @@ const TicketsView = {
   },
 
   openTicketDetails(ticketId) {
+    if (window.app && typeof window.app.openIssueDetails === 'function') {
+      window.app.openIssueDetails(ticketId);
+      return;
+    }
     const ticket = store.getTicketById(ticketId);
     if (!ticket) return;
 

@@ -720,7 +720,7 @@ const ProjectsView = {
                 <div class="space-y-1 pt-1">
                   <div class="flex items-center justify-between text-[11px] font-bold">
                     <span class="text-slate-400 uppercase text-[10px]">DELIVERY VELOCITY</span>
-                    <span class="text-slate-950 font-mono">${stats.progressPct}% (${stats.completed}/${stats.total} Issues)</span>
+                    <span class="text-slate-950 font-mono">${stats.progressPct}% (${stats.completed}/${stats.total} Issues${stats.inProgress > 0 && stats.completed === 0 ? ` • ${stats.inProgress} in Dev` : ''})</span>
                   </div>
                   <div class="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden flex">
                     <div class="h-full bg-gradient-to-r from-slate-900 to-[#84cc16] rounded-full transition-all duration-500" style="width: ${stats.progressPct}%"></div>
