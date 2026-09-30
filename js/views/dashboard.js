@@ -141,10 +141,17 @@ const DashboardView = {
 
           <!-- Workspace Actions -->
           <div class="flex items-center gap-2.5 shrink-0 relative z-10">
-            <button onclick="window.app.openCreateWorkspaceModal()" class="px-4 py-2 bg-[#bef264] hover:bg-[#a3e635] text-slate-950 font-black text-xs rounded-xl shadow-xs shadow-[#bef264]/25 transition flex items-center gap-1.5 cursor-pointer hover:shadow">
-              <i data-lucide="plus" class="w-4 h-4 text-slate-950"></i>
-              <span>Create Workspace</span>
-            </button>
+            ${store.canCreateWorkspace && store.canCreateWorkspace(activeUser?.id) ? `
+              <button onclick="window.app.openCreateWorkspaceModal()" class="px-4 py-2 bg-[#bef264] hover:bg-[#a3e635] text-slate-950 font-black text-xs rounded-xl shadow-xs shadow-[#bef264]/25 transition flex items-center gap-1.5 cursor-pointer hover:shadow">
+                <i data-lucide="plus" class="w-4 h-4 text-slate-950"></i>
+                <span>Create Workspace</span>
+              </button>
+            ` : (activeProject ? `
+              <button onclick="window.app.openProjectWorkspace('${activeProject.id}')" class="px-4 py-2 bg-slate-950 hover:bg-slate-800 text-white font-black text-xs rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer hover:shadow">
+                <i data-lucide="folder-kanban" class="w-4 h-4 text-[#bef264]"></i>
+                <span>Open Project Workspace</span>
+              </button>
+            ` : '')}
           </div>
         </div>
 

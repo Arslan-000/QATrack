@@ -19,7 +19,16 @@ class AppStore {
         
         // Purge dummy workspaces
         if (parsed.workspaces) {
-          parsed.workspaces = parsed.workspaces.filter(w => w.id !== "ws_default" && !w.name.includes("Acme Tech"));
+          parsed.workspaces = parsed.workspaces.filter(w => 
+            w && 
+            w.id !== "ws_default" && 
+            w.id !== "ws_alpha" && 
+            w.id !== "ws_1" && 
+            w.id !== "ws_mock" && 
+            !w.name.includes("Acme Tech") &&
+            !w.name.includes("Acme") &&
+            w.name !== "Workspace"
+          );
         } else {
           parsed.workspaces = [];
         }
@@ -27,17 +36,27 @@ class AppStore {
         // Purge legacy test mock projects
         if (parsed.projects) {
           parsed.projects = parsed.projects.filter(p => 
-            !["prj-ecom", "prj-health", "prj-omni", "prj_ecom"].includes(p.id)
+            p &&
+            !["prj-ecom", "prj-health", "prj-omni", "prj_ecom", "prj_pos", "prj_rpi", "prj_login_test", "prj_sample"].includes(p.id) &&
+            p.name !== "Retail POS Integration" &&
+            p.name !== "OmniChannel E-Commerce Suite" &&
+            p.name !== "TeleHealth Patient Portal" &&
+            p.key !== "POS" &&
+            p.key !== "RPI" &&
+            p.key !== "RPOS"
           );
         } else {
           parsed.projects = [];
         }
 
-        if (!parsed.workspaces || parsed.workspaces.length === 0) {
-          parsed.activeWorkspaceId = null;
+        const validWsIds = (parsed.workspaces || []).map(w => w.id);
+        const validPrjIds = (parsed.projects || []).map(p => p.id);
+
+        if (!parsed.activeWorkspaceId || !validWsIds.includes(parsed.activeWorkspaceId)) {
+          parsed.activeWorkspaceId = validWsIds.length > 0 ? validWsIds[0] : null;
         }
-        if (!parsed.projects || parsed.projects.length === 0) {
-          parsed.activeProjectId = null;
+        if (!parsed.activeProjectId || !validPrjIds.includes(parsed.activeProjectId)) {
+          parsed.activeProjectId = validPrjIds.length > 0 ? validPrjIds[0] : null;
         }
 
         // Ensure collections exist
@@ -1002,8 +1021,42 @@ class AppStore {
     return exists || ws;
   }
 
+  createDefaultWorkspaceIfEmpty() {
+    const activeUser = this.getActiveUser();
+    const userSpaces = activeUser ? this.getWorkspaces(activeUser.id) : [];
+    if (userSpaces.length === 0) {
+      const uId = activeUser ? activeUser.id : `usr_${Date.now()}`;
+      const uEmail = (activeUser?.email || 'user@pulsewave.io').toLowerCase().trim();
+      const uName = activeUser?.name || (uEmail ? uEmail.split('@')[0] : 'Team Member');
+      const defaultWs = {
+        id: `ws_${Date.now()}`,
+        name: `${uName}'s Workspace`,
+        slug: `${uName.toLowerCase().replace(/[^a-z0-9]/g, '-')}-workspace`,
+        company_name: `${uName}'s Team`,
+        workspace_type: "Software Company",
+        logo_color: "bg-slate-950 text-[#bef264]",
+        owner_id: uId,
+        created_by: uEmail,
+        role: "OWNER",
+        members: [{
+          id: uId,
+          name: uName,
+          email: uEmail,
+          role: "OWNER"
+        }]
+      };
+      this.addWorkspace(defaultWs);
+      return defaultWs;
+    }
+    return userSpaces[0];
+  }
+
   async deleteWorkspace(workspaceId) {
     if (!workspaceId) return false;
+    
+    if (this.canDeleteWorkspace && !this.canDeleteWorkspace(workspaceId)) {
+      throw new Error("Permission Denied: Only Workspace Owners and Project Managers can delete spaces.");
+    }
     
     // Find all projects belonging to this workspace
     const wsProjects = (this.data.projects || []).filter(p => p.workspace_id === workspaceId || p.workspaceId === workspaceId);
@@ -1487,6 +1540,10 @@ class AppStore {
   }
 
   async createProject(project) {
+    const activeUser = this.getActiveUser();
+    if (this.canCreateProject && !this.canCreateProject(project.workspace_id, activeUser?.id)) {
+      throw new Error("Permission Denied: Only Workspace Owners and Project Managers can create projects.");
+    }
     return await this.addRealProject(project);
   }
 
@@ -1914,6 +1971,10 @@ class AppStore {
   async deleteProject(projectId) {
     if (!projectId) return false;
     
+    if (this.canDeleteProject && !this.canDeleteProject(projectId)) {
+      throw new Error("Permission Denied: Only Project Managers and Space Owners can delete projects.");
+    }
+    
     const proj = this.getProjectById(projectId);
     if (!proj) return false;
 
@@ -2101,15 +2162,42 @@ class AppStore {
     }
 
     // Check if user is space owner/creator
-    if (activeWs.owner_id === uId || (activeWs.created_by && activeWs.created_by.toLowerCase().trim() === uEmail) || (activeWs.members && activeWs.members.some(m => (m.id === uId || m.user_id === uId || m.email?.toLowerCase() === uEmail) && (m.role === 'OWNER' || m.role === 'PROJECT_MANAGER' || m.role === 'PM')))) {
+    if (activeWs.owner_id === uId || (activeWs.created_by && activeWs.created_by.toLowerCase().trim() === uEmail) || (activeWs.members && activeWs.members.some(m => (m.id === uId || m.user_id === uId || (m.email && m.email.toLowerCase().trim() === uEmail)) && (m.role === 'OWNER' || m.role === 'PROJECT_MANAGER' || m.role === 'PM')))) {
       return "PM";
     }
 
     const wsMembers = this.getWorkspaceMembers(activeWs.id);
-    const member = wsMembers.find(m => (uId && (m.user_id === uId || m.id === uId || m.userId === uId)) || (uEmail && m.email && m.email.toLowerCase() === uEmail));
+    const member = wsMembers.find(m => (uId && (m.user_id === uId || m.id === uId || m.userId === uId)) || (uEmail && m.email && m.email.toLowerCase().trim() === uEmail));
     if (member) {
       if (member.status === 'Inactive' || member.status === 'INACTIVE') return null;
       const r = (member.role || "").toUpperCase();
+      if (r === 'OWNER' || r === 'PROJECT_MANAGER' || r === 'PM') return "PM";
+      if (r === 'QA' || r === 'QA_MANAGER' || r === 'QA_ENGINEER') return "QA";
+      if (r === 'DEVELOPER') return "DEVELOPER";
+      if (r === 'VIEWER' || r === 'CLIENT_VIEWER') return "VIEWER";
+      return r;
+    }
+
+    // Check pending or accepted invitations for this space
+    const inv = (this.data.invitations || []).find(i => (i.workspace_id === activeWs.id || i.workspaceId === activeWs.id) && (i.invited_email || i.invitedEmail || '').toLowerCase().trim() === uEmail);
+    if (inv) {
+      const r = (inv.role || "").toUpperCase();
+      if (r === 'OWNER' || r === 'PROJECT_MANAGER' || r === 'PM') return "PM";
+      if (r === 'QA' || r === 'QA_MANAGER' || r === 'QA_ENGINEER') return "QA";
+      if (r === 'DEVELOPER') return "DEVELOPER";
+      if (r === 'VIEWER' || r === 'CLIENT_VIEWER') return "VIEWER";
+      return r;
+    }
+
+    // Check project members in this space directly without recursion
+    const wsProjects = (this.data.projects || []).filter(p => p.workspace_id === activeWs.id || p.workspaceId === activeWs.id);
+    const wsProjectIds = wsProjects.map(p => p.id);
+    const pm = (this.data.projectMembers || []).find(m => 
+      wsProjectIds.includes(m.projectId || m.project_id) && 
+      ((uId && (m.userId === uId || m.user_id === uId)) || (uEmail && m.email && m.email.toLowerCase().trim() === uEmail))
+    );
+    if (pm) {
+      const r = (pm.role || "").toUpperCase();
       if (r === 'OWNER' || r === 'PROJECT_MANAGER' || r === 'PM') return "PM";
       if (r === 'QA' || r === 'QA_MANAGER' || r === 'QA_ENGINEER') return "QA";
       if (r === 'DEVELOPER') return "DEVELOPER";
@@ -2143,10 +2231,21 @@ class AppStore {
 
     // Check project_members table
     const members = (this.data.projectMembers || []).filter(pm => pm.projectId === projectId || pm.project_id === projectId);
-    const member = members.find(m => (uId && (m.userId === uId || m.user_id === uId)) || (uEmail && m.email && m.email.toLowerCase() === uEmail));
+    const member = members.find(m => (uId && (m.userId === uId || m.user_id === uId)) || (uEmail && m.email && m.email.toLowerCase().trim() === uEmail));
     if (member) {
       if (member.status === 'Inactive' || member.status === 'INACTIVE') return null;
       const r = (member.role || "").toUpperCase();
+      if (r === 'OWNER' || r === 'PROJECT_MANAGER' || r === 'PM') return "PM";
+      if (r === 'QA' || r === 'QA_MANAGER' || r === 'QA_ENGINEER') return "QA";
+      if (r === 'DEVELOPER') return "DEVELOPER";
+      if (r === 'VIEWER' || r === 'CLIENT_VIEWER') return "VIEWER";
+      return r;
+    }
+
+    // Check project_invitations table
+    const pinv = (this.data.projectInvitations || []).find(pi => (pi.projectId === projectId || pi.project_id === projectId) && (pi.invited_email || pi.invitedEmail || '').toLowerCase().trim() === uEmail);
+    if (pinv) {
+      const r = (pinv.role || "").toUpperCase();
       if (r === 'OWNER' || r === 'PROJECT_MANAGER' || r === 'PM') return "PM";
       if (r === 'QA' || r === 'QA_MANAGER' || r === 'QA_ENGINEER') return "QA";
       if (r === 'DEVELOPER') return "DEVELOPER";
@@ -2162,15 +2261,35 @@ class AppStore {
     return null; // Not a member of this project
   }
 
-  // RBAC Permission Matrix Checks
+  // RBAC Permission Matrix Checks (Strict Two-Tier Lockdown)
   canCreateProject(workspaceId = null, userId = null) {
     const role = this.getUserSpaceRole(workspaceId, userId);
-    return role === "PM" || role === "QA";
+    return role === "PM" || role === "OWNER" || role === "PROJECT_MANAGER";
+  }
+
+  canCreateWorkspace(userId = null) {
+    const activeUser = this.getActiveUser();
+    const uId = userId || (activeUser ? activeUser.id : null);
+    const userSpaces = this.getWorkspaces(uId);
+    if (userSpaces.length === 0) return true; // Brand-new user with 0 spaces can create their initial space
+    const role = this.getUserSpaceRole(null, uId);
+    return role === "PM" || role === "OWNER" || role === "PROJECT_MANAGER";
   }
 
   canDeleteProject(projectId = null, userId = null) {
     const role = this.getUserProjectRole(projectId, userId);
-    return role === "PM";
+    const spaceRole = this.getUserSpaceRole();
+    return role === "PM" || spaceRole === "PM" || spaceRole === "OWNER";
+  }
+
+  canDeleteWorkspace(workspaceId = null, userId = null) {
+    const role = this.getUserSpaceRole(workspaceId, userId);
+    return role === "PM" || role === "OWNER" || role === "PROJECT_MANAGER";
+  }
+
+  canManageWorkspaceTeam(workspaceId = null, userId = null) {
+    const role = this.getUserSpaceRole(workspaceId, userId);
+    return role === "PM" || role === "OWNER" || role === "PROJECT_MANAGER";
   }
 
   canCreateIssue(projectId, userId = null) {
@@ -2216,12 +2335,12 @@ class AppStore {
 
   canManageProjectTeam(projectId = null, userId = null) {
     const role = this.getUserProjectRole(projectId, userId);
-    return role === "PM";
+    return role === "PM" || role === "OWNER";
   }
 
   canEditProjectSettings(projectId, userId = null) {
     const role = this.getUserProjectRole(projectId, userId);
-    return role === "PM" || role === "QA";
+    return role === "PM" || role === "OWNER";
   }
 
   canManageReleases(projectId, userId = null) {
@@ -2637,12 +2756,17 @@ class AppStore {
 
   async removeProjectMember(projectId, memberId, actingUserId = null) {
     if (!this.data.projectMembers) this.data.projectMembers = [];
+    const activeUser = this.getActiveUser();
+    const currentUserId = actingUserId || (activeUser ? activeUser.id : null);
+    
+    if (this.canManageProjectTeam && !this.canManageProjectTeam(projectId, currentUserId)) {
+      throw new Error("Permission Denied: Only Project Managers and Space Owners can remove team members.");
+    }
+
     const members = this.getProjectMembers(projectId);
     const memberToRemove = members.find(m => m.id === memberId || m.userId === memberId);
     if (!memberToRemove) throw new Error("Member not found in project.");
 
-    const activeUser = this.getActiveUser();
-    const currentUserId = actingUserId || (activeUser ? activeUser.id : null);
     const currentUserEmail = (activeUser?.email || '')?.toLowerCase().trim();
 
     // 1. Self-Deletion Guard: PM cannot delete themself
@@ -2715,6 +2839,11 @@ class AppStore {
 
     const activeUser = this.getActiveUser();
     const currentUserId = actingUserId || (activeUser ? activeUser.id : null);
+    
+    if (this.canManageWorkspaceTeam && !this.canManageWorkspaceTeam(wsId, currentUserId)) {
+      throw new Error("Permission Denied: Only Workspace Owners and Project Managers can remove members from the Space.");
+    }
+
     const actingUser = currentUserId ? this.getUserById(currentUserId) : activeUser;
     const currentUserEmail = (actingUser?.email || activeUser?.email || '')?.toLowerCase().trim();
 

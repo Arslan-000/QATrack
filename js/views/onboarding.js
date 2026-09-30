@@ -48,6 +48,18 @@ const OnboardingView = {
     const activeUser = typeof store !== 'undefined' ? store.getActiveUser() : null;
     const userSpaces = activeUser && store.getWorkspaces ? store.getWorkspaces(activeUser.id) : [];
 
+    // Auto-navigate invited or existing members directly to their space
+    if (userSpaces.length > 0) {
+      const spaceRole = store.getUserSpaceRole ? store.getUserSpaceRole() : "PM";
+      const activeProj = store.getActiveProject ? store.getActiveProject() : null;
+      if (activeProj && spaceRole !== "PM" && spaceRole !== "OWNER") {
+        setTimeout(() => window.app.navigate("project-workspace"), 0);
+      } else {
+        setTimeout(() => window.app.navigate("dashboard"), 0);
+      }
+      return;
+    }
+
     container.innerHTML = `
       <div class="min-h-screen relative flex flex-col justify-between font-sans overflow-hidden" style="background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 45%, #ffffff 100%);">
         
@@ -1056,9 +1068,37 @@ const OnboardingView = {
     this.setStep(3);
   },
 
-  skipToDashboard() {
-    window.app.toast("Welcome to PulseWave", "Navigating to your executive command center.", "info");
-    window.app.navigate("dashboard");
+  async skipToDashboard() {
+    const activeUser = typeof store !== 'undefined' ? store.getActiveUser() : null;
+    if (activeUser) {
+      activeUser.onboarding_completed = true;
+      activeUser.onboarding_step = 'COMPLETE';
+    }
+    if (typeof store !== 'undefined') {
+      if (store.loadUserSpacesAndProjects && activeUser?.id) {
+        try {
+          await store.loadUserSpacesAndProjects(activeUser.id);
+        } catch (e) {}
+      }
+      const userSpaces = activeUser && store.getWorkspaces ? store.getWorkspaces(activeUser.id) : [];
+      if (userSpaces.length === 0 && store.createDefaultWorkspaceIfEmpty) {
+        store.createDefaultWorkspaceIfEmpty();
+      }
+      if (store.completeOnboarding) {
+        store.completeOnboarding();
+      } else {
+        store.saveState();
+      }
+    }
+    window.app.toast("Welcome to PulseWave", "Navigating to your workspace.", "info");
+    const activeWs = typeof store !== 'undefined' && store.getActiveWorkspace ? store.getActiveWorkspace() : null;
+    const spaceRole = (typeof store !== 'undefined' && store.getUserSpaceRole && activeWs) ? store.getUserSpaceRole(activeWs.id, activeUser?.id) : "PM";
+    const activeProj = typeof store !== 'undefined' && store.getActiveProject ? store.getActiveProject() : null;
+    if (activeProj && spaceRole !== "PM" && spaceRole !== "OWNER") {
+      window.app.navigate("project-workspace");
+    } else {
+      window.app.navigate("dashboard");
+    }
   },
 
   async finishAndNavigate(target) {
@@ -1074,9 +1114,13 @@ const OnboardingView = {
         store.saveState();
       }
       window.app.toast("Workspace Activated", "All systems operational. Welcome aboard!", "success");
+      const activeWs = store.getActiveWorkspace ? store.getActiveWorkspace() : null;
+      const spaceRole = (store.getUserSpaceRole && activeWs) ? store.getUserSpaceRole(activeWs.id, activeUser?.id) : "PM";
       const activeProj = store.getActiveProject ? store.getActiveProject() : null;
       if (target === "workspace" && activeProj) {
         window.app.openProjectWorkspace(activeProj.id, "board");
+      } else if (activeProj && spaceRole !== "PM" && spaceRole !== "OWNER") {
+        window.app.navigate("project-workspace");
       } else {
         window.app.navigate("dashboard");
       }

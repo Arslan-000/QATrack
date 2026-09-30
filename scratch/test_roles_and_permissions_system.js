@@ -91,7 +91,7 @@ async function runTests() {
   assert(store.getUserProjectRole(prjAlpha.id, userQA.id) === "QA", "QA has trusted access to Project Alpha");
   assert(store.getUserProjectRole(prjBeta.id, userQA.id) === "QA", "QA has trusted access to Project Beta");
   assert(store.getAuthorizedProjects(ws.id, userQA.id).length === 2, "QA sees ALL projects in Space (Alpha + Beta)");
-  assert(store.canCreateProject(ws.id, userQA.id) === true, "QA CAN create new projects");
+  assert(store.canCreateProject(ws.id, userQA.id) === false, "QA CANNOT create new projects");
   assert(store.canCreateSprint(prjAlpha.id, userQA.id) === true, "QA CAN create/manage sprints");
   assert(store.canCreateIssue(prjAlpha.id, userQA.id) === true, "QA CAN create issues");
   assert(store.canEditIssue(prjAlpha.id, null, userQA.id) === true, "QA CAN edit issues");

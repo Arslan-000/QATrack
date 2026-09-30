@@ -25,7 +25,6 @@ class AppController {
           try { await window.supabaseClient.auth.signOut(); } catch (e) {}
           if (typeof localStorage !== 'undefined') {
             localStorage.removeItem("pulsewave_supabase_auth_token");
-            localStorage.removeItem("pulsewave_qa_v2_store");
           }
           store.clearSupabaseUser();
         } else {
@@ -49,6 +48,7 @@ class AppController {
             this.updateHeaderProjectSelector();
             this.updateHeaderPersona();
             this.updateSidebarSpacesExplorer();
+            this.navigate('home');
           }
         });
       } catch (e) {
@@ -92,6 +92,8 @@ class AppController {
       if (!e.target.closest("#sidebarSpacesExplorerContainer")) {
         const dropdown = document.getElementById("sidebarSpacesDropdown");
         if (dropdown) dropdown.classList.add("hidden");
+        const prjDropdown = document.getElementById("sidebarProjectsDropdown");
+        if (prjDropdown) prjDropdown.classList.add("hidden");
       }
     });
 
@@ -106,15 +108,44 @@ class AppController {
     // Listen for hash changes
     window.addEventListener("hashchange", () => {
       const hash = window.location.hash ? window.location.hash.substring(1) : "";
-      const route = hash || "dashboard";
+      const route = hash || "home";
       if (route && route !== this.currentView) {
         this.navigate(route);
       }
     });
 
-    // Handle initial route (Starts from dashboard by default or current hash)
+    // Handle initial route
     const initialHash = window.location.hash ? window.location.hash.substring(1) : "";
-    const initialView = initialHash || "dashboard";
+    const activeUser = store.getActiveUser ? store.getActiveUser() : null;
+    let initialView;
+
+    if (!activeUser) {
+      const publicRoutes = ["home", "landing", "login", "signup", "verify-email", "join", "invite", "accept-invite", "project-invite"];
+      const baseHash = initialHash.split("?")[0];
+      if (publicRoutes.includes(baseHash) && initialHash) {
+        initialView = initialHash;
+      } else {
+        initialView = "home";
+      }
+    } else {
+      const userSpaces = store.getWorkspaces ? store.getWorkspaces(activeUser.id) : [];
+      const spaceRole = store.getUserSpaceRole ? store.getUserSpaceRole() : "PM";
+      const isPm = spaceRole === "PM" || spaceRole === "OWNER";
+      const activeProj = store.getActiveProject ? store.getActiveProject() : null;
+
+      if (userSpaces.length === 0) {
+        initialView = isPm ? "onboarding" : "home";
+      } else if (!initialHash || initialHash === "onboarding" || initialHash === "home" || initialHash === "landing" || initialHash === "login" || initialHash === "signup") {
+        if (!isPm && activeProj) {
+          initialView = "project-workspace";
+        } else {
+          initialView = "dashboard";
+        }
+      } else {
+        initialView = initialHash;
+      }
+    }
+
     this.navigate(initialView);
 
     if (window.lucide) window.lucide.createIcons();
@@ -249,11 +280,29 @@ class AppController {
       }
     }
 
+    // Direct route guard for onboarding view
+    if (baseRoute === "onboarding") {
+      const activeUser = store.getActiveUser ? store.getActiveUser() : null;
+      if (activeUser) {
+        const userSpaces = store.getWorkspaces ? store.getWorkspaces(activeUser.id) : [];
+        if (userSpaces.length > 0) {
+          const spaceRole = store.getUserSpaceRole ? store.getUserSpaceRole() : "PM";
+          const activeProj = store.getActiveProject ? store.getActiveProject() : null;
+          if (activeProj && spaceRole !== "PM" && spaceRole !== "OWNER") {
+            this.navigate("project-workspace");
+          } else {
+            this.navigate("dashboard");
+          }
+          return;
+        }
+      }
+    }
+
     // Role-based Route Guards & Project Isolation
     if (!isPublicView) {
       const activeUser = store.getActiveUser ? store.getActiveUser() : null;
       if (!activeUser) {
-        this.navigate("login");
+        this.navigate("home");
         return;
       }
 
@@ -405,7 +454,11 @@ class AppController {
         break;
 
       default:
-        LandingPageView.render(contentArea);
+        if (store.getActiveUser()) {
+          DashboardView.render(contentArea);
+        } else {
+          LandingPageView.render(contentArea);
+        }
     }
 
     if (window.lucide) window.lucide.createIcons();
@@ -413,6 +466,10 @@ class AppController {
   }
 
   openCreateProjectModal() {
+    if (store.canCreateProject && !store.canCreateProject()) {
+      this.toast("Permission Denied", "Only Project Managers and Space Owners can create new projects.", "warning");
+      return;
+    }
     if (typeof ProjectsView !== 'undefined' && ProjectsView.openCreateProjectModal) {
       ProjectsView.openCreateProjectModal();
     }
@@ -520,12 +577,8 @@ class AppController {
       return;
     }
 
-    const isPm = activeUser && activeUser.role && (
-      activeUser.role.toLowerCase().includes("project manager") || 
-      activeUser.role.toLowerCase().includes("admin") || 
-      activeUser.role.toLowerCase().includes("lead") || 
-      activeUser.role === "OWNER"
-    );
+    const spaceRole = store.getUserSpaceRole ? store.getUserSpaceRole(activeWorkspace?.id, activeUser?.id) : (activeUser?.role || 'PM');
+    const isPm = spaceRole === "PM" || spaceRole === "OWNER" || spaceRole === "PROJECT_MANAGER";
 
     container.innerHTML = `
       <button id="personaDropdownBtn" onclick="window.app.togglePersonaMenu()" class="flex items-center gap-1.5 sm:gap-2 p-1 sm:p-1.5 rounded-lg hover:bg-slate-100 transition border border-slate-200 bg-white cursor-pointer">
@@ -619,13 +672,31 @@ class AppController {
     const container = document.getElementById("sidebarSpacesExplorerContainer");
     if (!container) return;
 
-    const spaces = store.getWorkspaces ? store.getWorkspaces() : [];
-    const currentSpace = (store.getActiveWorkspace ? store.getActiveWorkspace() : null) || spaces[0] || { id: "ws_default", name: "Workspace", logo_color: "bg-slate-950 text-[#bef264]" };
-    const currentActiveProject = store.getActiveProject ? store.getActiveProject() : null;
+    const activeUser = store.getActiveUser ? store.getActiveUser() : null;
+    const spaces = store.getWorkspaces ? store.getWorkspaces(activeUser?.id) : [];
+    const currentSpace = (store.getActiveWorkspace ? store.getActiveWorkspace() : null) || spaces[0] || null;
     const canCreateProject = store.canCreateProject ? store.canCreateProject() : false;
     const spaceRole = store.getEffectiveSpaceRole ? store.getEffectiveSpaceRole() : 'PM';
     const isSpacePm = spaceRole === "PM" || (store.isWorkspaceAdmin && store.isWorkspaceAdmin());
     const spaceProjects = store.getProjectsForCurrentSpace ? store.getProjectsForCurrentSpace() : (store.getProjects ? store.getProjects() : []);
+    const currentActiveProject = store.getActiveProject ? store.getActiveProject() : null;
+
+    if (!currentSpace) {
+      container.innerHTML = `
+        <div class="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-center text-[11px] text-slate-500 font-medium">
+          ${isSpacePm ? `
+            <button type="button" onclick="window.app.openCreateWorkspaceModal()" class="w-full text-slate-900 hover:text-[#4d7c0f] font-bold flex items-center justify-center gap-1 cursor-pointer">
+              <i data-lucide="plus" class="w-3.5 h-3.5"></i>
+              <span>Create Space</span>
+            </button>
+          ` : `
+            <span>No Space Selected</span>
+          `}
+        </div>
+      `;
+      if (window.lucide) window.lucide.createIcons();
+      return;
+    }
 
     const spaceInitials = (currentSpace.name || "S").split(/\s+/).map(w => w[0]).join('').substring(0, 2).toUpperCase() || 'PW';
 
@@ -1088,6 +1159,14 @@ class AppController {
   }
 
   openCreateWorkspaceModal() {
+    const activeUser = store.getActiveUser ? store.getActiveUser() : null;
+    const userSpaces = activeUser && store.getWorkspaces ? store.getWorkspaces(activeUser.id) : [];
+    const spaceRole = store.getUserSpaceRole ? store.getUserSpaceRole() : "PM";
+    if (userSpaces.length > 0 && spaceRole !== "PM" && spaceRole !== "OWNER") {
+      this.toast("Permission Denied", "Invited team members cannot create new spaces. Only Workspace Owners and Project Managers have this permission.", "warning");
+      return;
+    }
+
     let modal = document.getElementById("createWorkspaceModal");
     if (!modal) {
       modal = document.createElement("div");
@@ -1173,6 +1252,15 @@ class AppController {
 
   async handleCreateWorkspaceModalSubmit(e) {
     e.preventDefault();
+    const activeUser = store.getActiveUser ? store.getActiveUser() : null;
+    const userSpaces = activeUser && store.getWorkspaces ? store.getWorkspaces(activeUser.id) : [];
+    const spaceRole = store.getUserSpaceRole ? store.getUserSpaceRole() : "PM";
+    if (userSpaces.length > 0 && spaceRole !== "PM" && spaceRole !== "OWNER") {
+      this.toast("Permission Denied", "Invited team members cannot create new spaces.", "warning");
+      this.closeCreateWorkspaceModal();
+      return;
+    }
+
     const name = document.getElementById("modalWsName")?.value.trim();
     const slug = document.getElementById("modalWsSlug")?.value.trim();
     const company = document.getElementById("modalWsCompany")?.value.trim();
@@ -1183,7 +1271,6 @@ class AppController {
     }
 
     try {
-      const activeUser = store.getActiveUser();
       const ws = {
         id: `ws_${Date.now()}`,
         name,
@@ -4562,4 +4649,7 @@ if (typeof window !== 'undefined') {
       window.app.init();
     });
   }
+}
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = AppController;
 }

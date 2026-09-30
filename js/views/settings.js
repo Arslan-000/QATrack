@@ -39,8 +39,8 @@ const SettingsView = {
     const allMembers = store.getWorkspaceMembers ? store.getWorkspaceMembers(activeSpace.id) : (activeSpace.members || []);
     const invitations = store.getInvitations ? store.getInvitations(activeSpace.id) : [];
 
-    const normRole = (activeUser.role || '').toUpperCase();
-    const isOwnerOrPm = normRole.includes("OWNER") || normRole.includes("PROJECT_MANAGER") || normRole.includes("PM") || normRole.includes("ADMIN") || normRole.includes("LEAD");
+    const spaceRole = store.getUserSpaceRole ? store.getUserSpaceRole(activeSpace.id, activeUser?.id) : (activeUser?.role || 'PM');
+    const isOwnerOrPm = spaceRole === "PM" || spaceRole === "OWNER" || spaceRole === "PROJECT_MANAGER";
 
     // Filter members if query present
     const filteredMembers = this.memberSearchQuery ? allMembers.filter(m => 
@@ -72,7 +72,7 @@ const SettingsView = {
           <div class="flex items-center gap-2">
             <span class="px-3 py-1 rounded-full bg-slate-100 border border-slate-200 font-mono text-[11px] font-bold text-slate-700 flex items-center gap-1.5 shadow-2xs">
               <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
-              Space: ${activeSpace.name}
+              Space: ${activeSpace.name} (${spaceRole === 'PM' ? 'Project Manager' : (spaceRole === 'QA' ? 'QA Engineer' : (spaceRole === 'DEVELOPER' ? 'Developer' : 'Viewer'))})
             </span>
           </div>
         </div>
@@ -143,6 +143,13 @@ const SettingsView = {
              ========================================================================= -->
         ${this.activeTab === 'space' ? `
           <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm space-y-6 animate-fade-in">
+            ${!isOwnerOrPm ? `
+              <div class="p-3.5 bg-amber-50 border border-amber-200 rounded-xl flex items-center gap-2.5 text-amber-900 text-xs">
+                <i data-lucide="shield-alert" class="w-4 h-4 text-amber-600 shrink-0"></i>
+                <span>You have <strong>read-only access</strong> to Space configuration. Only Workspace Owners and Project Managers can modify settings.</span>
+              </div>
+            ` : ''}
+
             <div class="flex items-center justify-between pb-4 border-b border-slate-100">
               <div>
                 <h2 class="text-sm font-bold text-slate-900 uppercase flex items-center gap-2">
@@ -164,8 +171,8 @@ const SettingsView = {
                     type="text"
                     id="settingsSpaceName"
                     value="${activeSpace.name || ''}"
-                    required
-                    class="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-xs font-bold focus:ring-2 focus:ring-[#bef264]/50 focus:border-[#84cc16] focus:outline-none bg-slate-50/50 focus:bg-white transition"
+                    ${!isOwnerOrPm ? 'disabled' : 'required'}
+                    class="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-xs font-bold focus:ring-2 focus:ring-[#bef264]/50 focus:border-[#84cc16] focus:outline-none bg-slate-50/50 focus:bg-white transition ${!isOwnerOrPm ? 'cursor-not-allowed opacity-75' : ''}"
                     placeholder="e.g. Apex Global Space"
                   />
                 </div>
@@ -176,7 +183,8 @@ const SettingsView = {
                     type="text"
                     id="settingsCompanyName"
                     value="${activeSpace.company_name || activeSpace.name || ''}"
-                    class="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-[#bef264]/50 focus:border-[#84cc16] focus:outline-none bg-slate-50/50 focus:bg-white transition"
+                    ${!isOwnerOrPm ? 'disabled' : ''}
+                    class="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-[#bef264]/50 focus:border-[#84cc16] focus:outline-none bg-slate-50/50 focus:bg-white transition ${!isOwnerOrPm ? 'cursor-not-allowed opacity-75' : ''}"
                     placeholder="e.g. Apex Technologies Inc."
                   />
                 </div>
@@ -194,7 +202,7 @@ const SettingsView = {
 
                 <div>
                   <label class="block font-bold text-slate-700 mb-1 text-[11px]">Workspace Type</label>
-                  <select id="settingsSpaceType" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-[#bef264]/50 focus:border-[#84cc16] focus:outline-none bg-white">
+                  <select id="settingsSpaceType" ${!isOwnerOrPm ? 'disabled' : ''} class="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-[#bef264]/50 focus:border-[#84cc16] focus:outline-none bg-white ${!isOwnerOrPm ? 'cursor-not-allowed opacity-75' : ''}">
                     <option value="Software Company" ${activeSpace.workspace_type === 'Software Company' ? 'selected' : ''}>Software Company</option>
                     <option value="QA & Testing Agency" ${activeSpace.workspace_type === 'QA & Testing Agency' ? 'selected' : ''}>QA & Testing Agency</option>
                     <option value="Enterprise IT" ${activeSpace.workspace_type === 'Enterprise IT' ? 'selected' : ''}>Enterprise IT</option>
@@ -204,7 +212,7 @@ const SettingsView = {
 
                 <div>
                   <label class="block font-bold text-slate-700 mb-1 text-[11px]">Theme Accent Color</label>
-                  <select id="settingsSpaceLogoColor" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-[#bef264]/50 focus:border-[#84cc16] focus:outline-none bg-white">
+                  <select id="settingsSpaceLogoColor" ${!isOwnerOrPm ? 'disabled' : ''} class="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-[#bef264]/50 focus:border-[#84cc16] focus:outline-none bg-white ${!isOwnerOrPm ? 'cursor-not-allowed opacity-75' : ''}">
                     <option value="bg-slate-950" ${activeSpace.logo_color === 'bg-slate-950' ? 'selected' : ''}>Obsidian Lime (Default)</option>
                     <option value="bg-emerald-600" ${activeSpace.logo_color === 'bg-emerald-600' ? 'selected' : ''}>Emerald Green</option>
                     <option value="bg-indigo-600" ${activeSpace.logo_color === 'bg-indigo-600' ? 'selected' : ''}>Deep Indigo</option>
@@ -221,25 +229,28 @@ const SettingsView = {
                     type="text"
                     id="settingsSpaceDescription"
                     value="${activeSpace.description || ''}"
-                    class="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-[#bef264]/50 focus:border-[#84cc16] focus:outline-none bg-slate-50/50 focus:bg-white transition"
+                    ${!isOwnerOrPm ? 'disabled' : ''}
+                    class="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-[#bef264]/50 focus:border-[#84cc16] focus:outline-none bg-slate-50/50 focus:bg-white transition ${!isOwnerOrPm ? 'cursor-not-allowed opacity-75' : ''}"
                     placeholder="Brief objective of this QA & project workspace"
                   />
                 </div>
               </div>
 
-              <div class="pt-4 border-t border-slate-100 flex items-center justify-between">
-                <span class="text-[11px] text-slate-400 font-medium flex items-center gap-1.5">
-                  <i data-lucide="cloud-check" class="w-3.5 h-3.5 text-emerald-600"></i>
-                  Synced with Supabase spaces table
-                </span>
-                <button
-                  type="submit"
-                  class="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold text-xs transition shadow-sm cursor-pointer flex items-center gap-2"
-                >
-                  <i data-lucide="save" class="w-4 h-4"></i>
-                  <span>Save Space Changes</span>
-                </button>
-              </div>
+              ${isOwnerOrPm ? `
+                <div class="pt-4 border-t border-slate-100 flex items-center justify-between">
+                  <span class="text-[11px] text-slate-400 font-medium flex items-center gap-1.5">
+                    <i data-lucide="cloud-check" class="w-3.5 h-3.5 text-emerald-600"></i>
+                    Synced with Supabase spaces table
+                  </span>
+                  <button
+                    type="submit"
+                    class="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold text-xs transition shadow-sm cursor-pointer flex items-center gap-2"
+                  >
+                    <i data-lucide="save" class="w-4 h-4"></i>
+                    <span>Save Space Changes</span>
+                  </button>
+                </div>
+              ` : ''}
             </form>
           </div>
         ` : ''}
@@ -377,13 +388,19 @@ const SettingsView = {
               </div>
               
               <div class="flex items-center gap-2">
-                <button
-                  onclick="SettingsView.openInviteModal('${activeSpace.id}')"
-                  class="px-3.5 py-2 bg-[#bef264] hover:bg-[#a3e635] text-slate-950 font-black text-xs rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer"
-                >
-                  <i data-lucide="user-plus" class="w-3.5 h-3.5 text-slate-950"></i>
-                  <span>Invite Teammate</span>
-                </button>
+                ${isOwnerOrPm ? `
+                  <button
+                    onclick="SettingsView.openInviteModal('${activeSpace.id}')"
+                    class="px-3.5 py-2 bg-[#bef264] hover:bg-[#a3e635] text-slate-950 font-black text-xs rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <i data-lucide="user-plus" class="w-3.5 h-3.5 text-slate-950"></i>
+                    <span>Invite Teammate</span>
+                  </button>
+                ` : `
+                  <span class="px-2.5 py-1 rounded-lg bg-slate-100 text-slate-600 text-[11px] font-bold border border-slate-200">
+                    Read-Only Directory
+                  </span>
+                `}
               </div>
             </div>
 
@@ -504,13 +521,19 @@ const SettingsView = {
                 <p class="text-slate-400 text-[11px] mt-0.5">Track dispatched invitations, copy onboarding join links, and manage member requests.</p>
               </div>
 
-              <button
-                onclick="SettingsView.openInviteModal('${activeSpace.id}')"
-                class="px-3.5 py-2 bg-[#bef264] hover:bg-[#a3e635] text-slate-950 font-bold shadow-xs shadow-[#bef264]/25 font-bold text-xs rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer"
-              >
-                <i data-lucide="plus" class="w-3.5 h-3.5"></i>
-                <span>New Invitation</span>
-              </button>
+              ${isOwnerOrPm ? `
+                <button
+                  onclick="SettingsView.openInviteModal('${activeSpace.id}')"
+                  class="px-3.5 py-2 bg-[#bef264] hover:bg-[#a3e635] text-slate-950 font-bold shadow-xs shadow-[#bef264]/25 font-bold text-xs rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer"
+                >
+                  <i data-lucide="plus" class="w-3.5 h-3.5"></i>
+                  <span>New Invitation</span>
+                </button>
+              ` : `
+                <span class="px-2.5 py-1 rounded-lg bg-slate-100 text-slate-600 text-[11px] font-bold border border-slate-200">
+                  Read-Only Invitations
+                </span>
+              `}
             </div>
 
             <!-- Search Filter Bar -->
@@ -565,7 +588,7 @@ const SettingsView = {
                           <span>Copy Link</span>
                         </button>
 
-                        ${isPending ? `
+                        ${isOwnerOrPm ? (isPending ? `
                           <button
                             onclick="SettingsView.handleResendInvite('${inv.id}')"
                             class="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-900 border border-slate-200 rounded-lg font-bold text-[11px] transition cursor-pointer"
@@ -585,7 +608,7 @@ const SettingsView = {
                           >
                             Delete
                           </button>
-                        `}
+                        `) : ''}
                       </div>
                     </div>
                   `;
@@ -670,21 +693,28 @@ const SettingsView = {
             </div>
 
             <!-- Danger Item 1: Delete Space -->
-            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 bg-white rounded-xl border border-rose-200 shadow-2xs">
-              <div>
-                <h4 class="font-extrabold text-slate-900 text-xs">Delete this Space permanently</h4>
-                <p class="text-[11px] text-slate-500 mt-0.5 max-w-lg">
-                  Permanently removes <strong>${activeSpace.name}</strong>, all associated projects, members, tickets, and test runs from Supabase and local storage. This action cannot be undone.
-                </p>
+            ${isOwnerOrPm ? `
+              <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 bg-white rounded-xl border border-rose-200 shadow-2xs">
+                <div>
+                  <h4 class="font-extrabold text-slate-900 text-xs">Delete this Space permanently</h4>
+                  <p class="text-[11px] text-slate-500 mt-0.5 max-w-lg">
+                    Permanently removes <strong>${activeSpace.name}</strong>, all associated projects, members, tickets, and test runs from Supabase and local storage. This action cannot be undone.
+                  </p>
+                </div>
+                <button
+                  onclick="SettingsView.openDeleteSpaceModal('${activeSpace.id}', '${encodeURIComponent(activeSpace.name)}')"
+                  class="px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl shadow-sm transition cursor-pointer shrink-0 flex items-center gap-1.5"
+                >
+                  <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                  <span>Delete Space</span>
+                </button>
               </div>
-              <button
-                onclick="SettingsView.openDeleteSpaceModal('${activeSpace.id}', '${encodeURIComponent(activeSpace.name)}')"
-                class="px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl shadow-sm transition cursor-pointer shrink-0 flex items-center gap-1.5"
-              >
-                <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
-                <span>Delete Space</span>
-              </button>
-            </div>
+            ` : `
+              <div class="p-3.5 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 text-xs flex items-center gap-2">
+                <i data-lucide="shield-alert" class="w-4 h-4 text-amber-600 shrink-0"></i>
+                <span>Space deletion is restricted to Workspace Owners and Project Managers.</span>
+              </div>
+            `}
 
             <!-- Danger Item 2: Delete Account -->
             <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 bg-white rounded-xl border border-rose-200 shadow-2xs">
@@ -1264,6 +1294,12 @@ const SettingsView = {
 
   // Delete Space Modal
   openDeleteSpaceModal(spaceId, encodedName) {
+    const activeUser = store.getActiveUser ? store.getActiveUser() : null;
+    if (store.canDeleteWorkspace && !store.canDeleteWorkspace(spaceId, activeUser?.id)) {
+      window.app.toast("Permission Denied", "Only Workspace Owners and Project Managers can delete spaces.", "error");
+      return;
+    }
+
     const spaceName = decodeURIComponent(encodedName);
     const modalContainer = document.getElementById("settingsModalContainer");
     if (!modalContainer) return;
@@ -1320,6 +1356,12 @@ const SettingsView = {
   },
 
   async confirmDeleteSpace(spaceId, encodedName) {
+    const activeUser = store.getActiveUser ? store.getActiveUser() : null;
+    if (store.canDeleteWorkspace && !store.canDeleteWorkspace(spaceId, activeUser?.id)) {
+      window.app.toast("Permission Denied", "Only Workspace Owners and Project Managers can delete spaces.", "error");
+      return;
+    }
+
     const spaceName = decodeURIComponent(encodedName);
     const inputVal = document.getElementById("confirmSpaceNameInput")?.value.trim();
 

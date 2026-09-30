@@ -903,8 +903,16 @@ const ProjectsView = {
 
   // --- CREATE PROJECT MODAL ---
   openCreateProjectModal() {
-    const users = store.getUsers ? store.getUsers() : [];
     const activeUser = store.getActiveUser ? store.getActiveUser() : null;
+    const canCreate = store.canCreateProject ? store.canCreateProject(null, activeUser?.id) : false;
+    if (!canCreate) {
+      if (window.app && window.app.toast) {
+        window.app.toast("Permission Denied", "Only Workspace Owners and Project Managers can create projects.", "error");
+      }
+      return;
+    }
+
+    const users = store.getUsers ? store.getUsers() : [];
     const allUsers = [...users];
     if (activeUser && !allUsers.some(u => u.id === activeUser.id || u.email === activeUser.email)) {
       allUsers.unshift(activeUser);
@@ -1113,6 +1121,15 @@ const ProjectsView = {
 
   // --- DELETE PROJECT CONFIRMATION MODAL & ACTION ---
   confirmDeleteProject(projectId) {
+    const activeUser = store.getActiveUser ? store.getActiveUser() : null;
+    const canDel = store.canDeleteProject ? store.canDeleteProject(projectId, activeUser?.id) : false;
+    if (!canDel) {
+      if (window.app && window.app.toast) {
+        window.app.toast("Permission Denied", "Only Workspace Owners and Project Managers can delete projects.", "error");
+      }
+      return;
+    }
+
     const proj = store.getProjectById(projectId);
     if (!proj) return;
 
@@ -1187,6 +1204,15 @@ const ProjectsView = {
   },
 
   async handleDeleteProject(projectId) {
+    const activeUser = store.getActiveUser ? store.getActiveUser() : null;
+    const canDel = store.canDeleteProject ? store.canDeleteProject(projectId, activeUser?.id) : false;
+    if (!canDel) {
+      if (window.app && window.app.toast) {
+        window.app.toast("Permission Denied", "Only Workspace Owners and Project Managers can delete projects.", "error");
+      }
+      return;
+    }
+
     const btn = document.getElementById("confirmDeletePrjBtn");
     if (btn) {
       btn.disabled = true;
